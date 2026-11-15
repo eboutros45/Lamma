@@ -33,7 +33,8 @@ public final class SchemaMigrator {
     /** All migration scripts, in the order they must run. Version = position in this list + 1. */
     static final List<String> MIGRATIONS = List.of(
             "V001__create_users_and_wallets.sql",
-            "V002__add_sign_in_lockout_fields.sql"
+            "V002__add_sign_in_lockout_fields.sql",
+            "V003__create_wallet_transactions.sql"
     );
 
     private final Database database;

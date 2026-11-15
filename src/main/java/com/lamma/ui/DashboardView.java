@@ -3,9 +3,12 @@ package com.lamma.ui;
 import com.lamma.auth.AuthenticatedUser;
 import com.lamma.wallet.Money;
 import com.lamma.wallet.PersonalWallet;
+import com.lamma.wallet.WalletTransaction;
+import java.util.List;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -13,19 +16,26 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 
 /**
- * Personal wallet dashboard for the signed-in user.
+ * Personal wallet dashboard for the signed-in user: balance, Receive Money, and recent activity.
  *
- * <p>The balance is loaded from MySQL in the background. When the result arrives it is only
- * shown if this screen is still on display <em>and</em> the same sign-in is still active,
- * so a slow load can never show one user's wallet after Sign Out or an account switch.
+ * <p>The balance and activity are loaded from MySQL in the background. When the result arrives
+ * it is only shown if this screen is still on display <em>and</em> the same sign-in is still
+ * active, so a slow load can never show one user's wallet after Sign Out or an account switch.
  */
 final class DashboardView extends BorderPane {
+
+    /** How many recent transactions the dashboard shows. */
+    static final int RECENT_ACTIVITY_LIMIT = 10;
+
+    private record DashboardData(PersonalWallet wallet, List<WalletTransaction> transactions) {
+    }
 
     private final AppNavigator navigator;
     private final AuthenticatedUser user;
     private final Label balance = new Label("—");
     private final Label walletStatus = Screens.message("walletStatus");
     private final Button retry = new Button("Retry");
+    private final VBox activityList = new VBox(6);
 
     DashboardView(AppNavigator navigator, AuthenticatedUser user) {
         this.navigator = navigator;
@@ -33,11 +43,11 @@ final class DashboardView extends BorderPane {
         getStyleClass().add("dashboard");
 
         setTop(topBar());
-        VBox content = new VBox(20, walletCard(), comingSoonSection());
+        VBox content = new VBox(16, walletCard(), actions(), recentActivity());
         content.getStyleClass().add("dashboard-content");
         setCenter(content);
 
-        loadWallet();
+        load();
     }
 
     private HBox topBar() {
@@ -71,50 +81,66 @@ final class DashboardView extends BorderPane {
         Label caption = Screens.hint("Available balance (simulated USD)");
 
         retry.setId("retryWalletButton");
-        retry.setOnAction(event -> loadWallet());
+        retry.setOnAction(event -> load());
 
-        VBox card = new VBox(6, heading, balance, caption, walletStatus, retry);
+        VBox card = new VBox(4, heading, balance, caption, walletStatus, retry);
         card.getStyleClass().add("card");
         return card;
     }
 
-    /** Read-only previews: plain labels, not buttons, so nothing looks clickable. */
-    private VBox comingSoonSection() {
-        HBox tiles = new HBox(12,
-                previewTile("Send Money", "Send funds to another LAMMA user."),
-                previewTile("Receive Money", "Share your number to get paid."),
-                previewTile("Recent Activity", "Your transactions will appear here."));
-        Label heading = new Label("Coming soon");
-        heading.getStyleClass().add("section-title");
-        return new VBox(10, heading, tiles);
-    }
+    /** Receive Money works; Send Money is a read-only preview (a label, not a button). */
+    private HBox actions() {
+        Button receive = new Button("Receive Money");
+        receive.setId("receiveMoneyButton");
+        receive.getStyleClass().add("action-button");
+        receive.setMaxWidth(Double.MAX_VALUE);
+        receive.setOnAction(event -> navigator.showReceive());
+        HBox.setHgrow(receive, Priority.ALWAYS);
 
-    private static VBox previewTile(String title, String description) {
-        Label titleLabel = new Label(title);
-        titleLabel.getStyleClass().add("preview-title");
+        Label sendTitle = new Label("Send Money");
+        sendTitle.getStyleClass().add("preview-title");
         Label badge = new Label("Coming Soon");
         badge.getStyleClass().add("badge");
-        Label text = Screens.hint(description);
-        VBox tile = new VBox(6, titleLabel, badge, text);
-        tile.getStyleClass().add("preview-tile");
-        tile.setMaxWidth(Double.MAX_VALUE);
-        HBox.setHgrow(tile, Priority.ALWAYS);
-        return tile;
+        HBox send = new HBox(8, sendTitle, badge);
+        send.setId("sendMoneyPreview");
+        send.setAlignment(Pos.CENTER);
+        send.getStyleClass().add("preview-tile");
+        send.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(send, Priority.ALWAYS);
+
+        return new HBox(12, receive, send);
     }
 
-    private void loadWallet() {
+    private VBox recentActivity() {
+        Label heading = new Label("Recent Activity");
+        heading.getStyleClass().add("section-title");
+        activityList.setId("activityList");
+        ScrollPane scroll = new ScrollPane(activityList);
+        scroll.setFitToWidth(true);
+        scroll.getStyleClass().add("activity-scroll");
+        VBox.setVgrow(scroll, Priority.ALWAYS);
+        VBox section = new VBox(8, heading, scroll);
+        VBox.setVgrow(section, Priority.ALWAYS);
+        return section;
+    }
+
+    private void load() {
         retry.setVisible(false);
         retry.setManaged(false);
         balance.setText("—");
+        activityList.getChildren().clear();
         Screens.showInfo(walletStatus, "Loading your wallet…");
         long userId = user.userId(); // from the session, never from user input
-        BackgroundWork.run(() -> navigator.walletService().loadPersonalWallet(userId),
-                (PersonalWallet wallet) -> {
+        BackgroundWork.run(() -> new DashboardData(
+                        navigator.walletService().loadPersonalWallet(userId),
+                        navigator.walletService().loadRecentTransactions(userId, RECENT_ACTIVITY_LIMIT)),
+                (DashboardData data) -> {
                     if (!stillCurrent()) {
                         return; // signed out or switched account while loading: discard
                     }
-                    balance.setText(Money.formatUsd(wallet.balance()));
+                    balance.setText(Money.formatUsd(data.wallet().balance()));
                     walletStatus.setText("");
+                    showActivity(data.transactions());
                 },
                 error -> {
                     if (!stillCurrent()) {
@@ -124,6 +150,39 @@ final class DashboardView extends BorderPane {
                     retry.setVisible(true);
                     retry.setManaged(true);
                 });
+    }
+
+    private void showActivity(List<WalletTransaction> transactions) {
+        activityList.getChildren().clear();
+        if (transactions.isEmpty()) {
+            Label empty = Screens.hint("No activity yet. Use Receive Money to add funds.");
+            empty.setId("noActivityLabel");
+            activityList.getChildren().add(empty);
+            return;
+        }
+        for (WalletTransaction t : transactions) {
+            activityList.getChildren().add(activityRow(t));
+        }
+    }
+
+    private static HBox activityRow(WalletTransaction t) {
+        Label type = new Label(TransactionLabels.type(t));
+        type.getStyleClass().add("activity-type");
+        Label when = Screens.hint(TransactionLabels.dateTime(t.createdAt()));
+        VBox left = new VBox(2, type, when);
+
+        Label amount = new Label(TransactionLabels.signedAmount(t));
+        amount.getStyleClass().add(t.isCredit() ? "amount-credit" : "amount-debit");
+        Label status = Screens.hint(TransactionLabels.status(t));
+        VBox right = new VBox(2, amount, status);
+        right.setAlignment(Pos.CENTER_RIGHT);
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        HBox row = new HBox(left, spacer, right);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.getStyleClass().add("activity-row");
+        return row;
     }
 
     private boolean stillCurrent() {

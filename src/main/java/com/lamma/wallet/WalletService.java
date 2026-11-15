@@ -7,6 +7,9 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Reads wallet data for the dashboard.
@@ -27,6 +30,14 @@ public class WalletService {
             "We couldn't find your personal wallet. Please contact support.";
     static final String INCONSISTENT_MESSAGE =
             "Your wallet information looks inconsistent, so it can't be shown. Please contact support.";
+
+    static final String ACTIVITY_UNAVAILABLE_MESSAGE =
+            "Your recent activity could not be loaded because the database is unavailable. "
+            + "Check that MySQL is running, then press Retry.";
+
+    /** Columns read for a transaction; the table is aliased as "t" in every query. */
+    static final String TRANSACTION_COLUMNS = "t.transaction_id, t.wallet_id, t.transaction_type, t.direction,"
+            + " t.amount, t.balance_after, t.status, t.created_at";
 
     private final Database database;
 
@@ -67,5 +78,47 @@ public class WalletService {
         } catch (SQLException e) {
             throw new DatabaseException(UNAVAILABLE_MESSAGE, e);
         }
+    }
+
+    /**
+     * The newest transactions of the user's PERSONAL wallet, newest first.
+     * Selected by the session's user id (joined through wallets), never by a wallet id.
+     */
+    public List<WalletTransaction> loadRecentTransactions(long userId, int limit) throws DatabaseException {
+        String sql = "SELECT " + TRANSACTION_COLUMNS
+                + " FROM wallet_transactions t JOIN wallets w ON w.wallet_id = t.wallet_id"
+                + " WHERE w.owner_user_id = ? AND w.wallet_type = 'PERSONAL'"
+                + " ORDER BY t.transaction_id DESC LIMIT ?";
+        Connection conn;
+        try {
+            conn = database.getConnection();
+        } catch (DatabaseException e) {
+            throw new DatabaseException(ACTIVITY_UNAVAILABLE_MESSAGE, e);
+        }
+        try (conn; PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, userId);
+            ps.setInt(2, limit);
+            List<WalletTransaction> transactions = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    transactions.add(readTransaction(rs));
+                }
+            }
+            return transactions;
+        } catch (SQLException e) {
+            throw new DatabaseException(ACTIVITY_UNAVAILABLE_MESSAGE, e);
+        }
+    }
+
+    static WalletTransaction readTransaction(ResultSet rs) throws SQLException {
+        return new WalletTransaction(
+                rs.getLong("transaction_id"),
+                rs.getLong("wallet_id"),
+                rs.getString("transaction_type"),
+                rs.getString("direction"),
+                rs.getBigDecimal("amount"),
+                rs.getBigDecimal("balance_after"),
+                rs.getString("status"),
+                rs.getObject("created_at", LocalDateTime.class));
     }
 }

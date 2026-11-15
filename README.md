@@ -2,10 +2,11 @@
 
 Simulated digital wallet — local JavaFX desktop application backed by MySQL (via JDBC).
 
-**Current state: Alpha 1 / P03 (personal wallet dashboard).** You can register a personal account,
-sign in, see your personal wallet balance (read from MySQL), and sign out. Business sign-up shows
-"Coming Soon" only. Send Money, Receive Money and Recent Activity are shown on the dashboard as
-non-clickable "Coming Soon" previews.
+**Current state: Alpha 2 / P01 (transaction foundation and cash top-up),** on branch
+`alpha2-development`. Alpha 1 (on `main`) lets you register a personal account, sign in, see your
+personal wallet balance and sign out. Alpha 2 P01 adds **Receive Money → Cash Top-Up** (simulated
+cash) and a **Recent Activity** list. Credit Card Top-Up, Send Money and Business accounts are
+still "Coming Soon".
 
 > This is a prototype for **simulated money**. The six-digit PIN, PBKDF2 hashing and sign-in lockout
 > are reasonable for that purpose. They are **not** production-grade financial security.
@@ -47,7 +48,12 @@ JavaFX and the MySQL JDBC driver are downloaded by Maven automatically.
    mvn -q compile exec:java
    ```
 
-   Expected output: `OK: Connected to MySQL 8.0.x, database 'lamma', schema version 2 ...`
+   Expected output: `OK: Connected to MySQL 8.0.x, database 'lamma', schema version 3 ...`
+
+   > Once a database has been upgraded to version 3, the Alpha 1 app on `main` refuses to start
+   > against it ("schema is newer than this application"). If you switch between `main` and
+   > `alpha2-development`, give each branch its own database (for example `lamma_alpha1`), set
+   > through `db.url`.
    If something is wrong, you get a `DATABASE ERROR: ...` line that explains the problem.
 
 ## Run the application
@@ -66,9 +72,15 @@ the **Sign In** screen:
 - **Personal Sign Up**: first name, last name, phone number, PIN and Confirm PIN. When it
   succeeds, you return to Sign In with the phone number filled in.
 - **Dashboard**: shows LAMMA branding, your name, **Personal Wallet** and your balance in USD
-  (e.g. `$0.00`), plus a **Sign Out** button. The balance loads in the background. If it can't be
-  loaded, a friendly message and a **Retry** button appear. The Send Money, Receive Money and
-  Recent Activity tiles are read-only "Coming Soon" previews.
+  (e.g. `$0.00`), plus a **Sign Out** button. Below that is a **Receive Money** button, a
+  read-only "Send Money – Coming Soon" tile, and **Recent Activity**: your 10 newest
+  transactions with type, amount, date and time, and status. Everything loads in the background.
+  If it can't be loaded, a friendly message and a **Retry** button appear.
+- **Receive Money**: **Cash Top-Up** (works) or "Credit Card Top-Up – Coming Soon" (not
+  clickable).
+- **Cash Top-Up**: enter an amount → review it → **Confirm Top-Up** → success with your new
+  balance → **Back to Dashboard**. Amounts are USD from $0.01 to $10,000.00 per top-up, with at
+  most 2 decimal places. All money is simulated.
 
 ## Run the tests
 
@@ -79,12 +91,12 @@ mvn test
 Two groups of tests are **skipped** unless their environment is available. Maven reports them as
 `Skipped`, not passed:
 
-- **29 MySQL integration tests** run only when `LAMMA_TEST_DB_*` is set (see below).
-- **9 JavaFX navigation tests** (`DashboardNavigationTest`, `AsyncNavigationRaceTest`) need a
+- **50 MySQL integration tests** run only when `LAMMA_TEST_DB_*` is set (see below).
+- **16 JavaFX UI tests** (`DashboardNavigationTest`, `AsyncNavigationRaceTest`, `CashTopUpFlowTest`) need a
   graphical display. They always run on macOS and Windows; on Linux they need `DISPLAY` (a
   desktop session, or `xvfb-run`). No window is shown.
 
-With neither available, expect `Tests run: 100, Failures: 0, Errors: 0, Skipped: 38`. To run the
+With neither available, expect `Tests run: 151, Failures: 0, Errors: 0, Skipped: 66`. To run the
 MySQL tests, point them at the test database:
 
 ```bash
@@ -93,8 +105,8 @@ LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
 mvn test
 ```
 
-Expect `Skipped: 9` if no display is available (the JavaFX tests), and with a display as well,
-`Tests run: 100, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
+Expect `Skipped: 16` if no display is available (the JavaFX tests), and with a display as well,
+`Tests run: 151, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
 `xvfb-run -a mvn test` (with the variables above).
 
 These tests drop and recreate all tables in that database, so they refuse to run unless the
@@ -104,12 +116,14 @@ database name ends in `_test`.
 
 ```
 JavaFX screens (com.lamma.ui)         StartupView -> SignInView <-> SignUpChoiceView -> PersonalSignUpView
-   │  AppNavigator switches screens        └─> DashboardView (only with an active UserSession)
+   │  AppNavigator switches screens        └─> DashboardView -> ReceiveView -> CashTopUpView
+   │                                           (only with an active UserSession)
    │  BackgroundWork runs DB calls off the UI thread
    ▼
 Services (com.lamma.auth)             RegistrationService, AuthenticationService, UserSession
    │  PhoneNumbers (normalization), Pins (format), PinHasher (PBKDF2)
-   │      (com.lamma.wallet)          WalletService (reads the PERSONAL wallet), Money (USD format)
+   │      (com.lamma.wallet)          WalletService (wallet + recent activity), TopUpService,
+   │                                  Amounts (amount rules), Money (USD format)
    ▼
 JDBC (com.lamma.db)                   Database, DatabaseConfig, SchemaMigrator, DatabaseStatus
    ▼
@@ -119,12 +133,12 @@ MySQL                                 users, wallets, schema_version
 - `src/main/java/com/lamma/LammaApp.java`: the JavaFX entry point.
 - `src/main/java/com/lamma/ui/`: the screens, plus `src/main/resources/com/lamma/ui/lamma.css`.
 - `src/main/java/com/lamma/auth/`: registration, sign-in, session, phone and PIN rules.
-- `src/main/java/com/lamma/wallet/`: wallet data access for the dashboard.
+- `src/main/java/com/lamma/wallet/`: wallet balance, transactions and cash top-ups.
 - `src/main/java/com/lamma/db/`: the database code (config, connection, migrations, CLI check).
 - `src/main/resources/db/migration/`: versioned schema scripts.
 - `database/create_database.sql`: one-time admin setup (database and user).
 
-## Database schema (version 2)
+## Database schema (version 3)
 
 ### `users` (USER)
 
@@ -149,6 +163,23 @@ MySQL                                 users, wallets, schema_version
 | `created_at` | DATETIME | Set automatically |
 | `personal_owner_user_id` | generated column, **UNIQUE** | Equals `owner_user_id` for personal wallets and NULL otherwise. This enforces **at most one personal wallet per user** while leaving future wallet types unrestricted |
 
+### `wallet_transactions` (Alpha 2)
+
+One row per change to one wallet's balance. A cash top-up is one CREDIT row; a future transfer
+will be one DEBIT row plus one CREDIT row.
+
+| Column | Type | Notes |
+|---|---|---|
+| `transaction_id` | BIGINT UNSIGNED, PK, auto-increment | Also gives the order, newest first |
+| `wallet_id` | BIGINT UNSIGNED NOT NULL, FK → `wallets.wallet_id` | A wallet with transactions can't be deleted |
+| `transaction_type` | VARCHAR(30) | `CHECK IN ('CASH_TOP_UP')`. Later phases widen this |
+| `direction` | VARCHAR(6) | `CREDIT` or `DEBIT`. A cash top-up must be a `CREDIT` |
+| `amount` | DECIMAL(15,2) | `CHECK (amount > 0)`. Always positive; the direction gives the sign |
+| `balance_after` | DECIMAL(15,2) | `CHECK (>= 0)`. The wallet balance right after this transaction |
+| `status` | VARCHAR(20) | `CHECK IN ('COMPLETED')`. Later phases may add e.g. `PENDING` |
+| `request_id` | VARCHAR(36), **UNIQUE** | One id per confirmation, so a repeated request can't credit twice |
+| `created_at` | DATETIME | Stored in **UTC**, shown in the computer's time zone |
+
 ### `schema_version`
 
 This table records which migration scripts have run (`version`, `script_name`, `applied_at`).
@@ -166,6 +197,11 @@ first.
 |---|---|---|
 | 1 | `V001__create_users_and_wallets.sql` | `users`, `wallets` (P01) |
 | 2 | `V002__add_sign_in_lockout_fields.sql` | `users.failed_pin_attempts`, `users.locked_until` (P02) |
+| 3 | `V003__create_wallet_transactions.sql` | `wallet_transactions` (Alpha 2 P01) |
+
+When adding a table that references `users`, `wallets` or `wallet_transactions`, also add it to
+the `DROP TABLE` lists in `src/test/java/com/lamma/testsupport/TestDatabase.java` and
+`SchemaConstraintsIntegrationTest`, child tables first.
 
 ## Phone number normalization
 
@@ -223,6 +259,25 @@ Lebanese numbers must have 7 or 8 digits after the `0`/`961`. Any other bare dig
 - **Restart**: the session is in memory only, so a restarted app always starts at Sign In. Accounts
   and wallets are stored in MySQL and are still there.
 
+## Cash top-up: data integrity
+
+`TopUpService.cashTopUp` does everything in **one MySQL transaction**:
+
+1. `SELECT … FROM wallets WHERE owner_user_id = ? AND wallet_type = 'PERSONAL' FOR UPDATE` locks
+   the signed-in user's wallet row. The user id comes from the session; the screen never supplies
+   a wallet id. Concurrent top-ups to the same wallet wait for each other, so no update is lost.
+2. If this `request_id` was already processed, the earlier result is returned and nothing is
+   credited again.
+3. `UPDATE wallets SET balance = balance + ?`, then `INSERT INTO wallet_transactions …`.
+4. Commit both, or roll both back on any error.
+
+Repeated credits are blocked at three levels:
+
+- The Confirm button is disabled while the top-up runs.
+- After success the Confirm button is gone.
+- The request id, created once per review screen, is reused if you retry after an error and
+  replaced if you edit the amount. So even a retry after a timeout credits at most once.
+
 ## macOS
 
 The project is pure Java. Maven downloads the right JavaFX build for macOS automatically, on both
@@ -240,10 +295,10 @@ mysql -u root < database/create_database.sql
 cp config/database.properties.example config/database.properties   # then set db.password
 
 # 3. Verify
-mvn -q compile exec:java         # expect: OK: Connected to MySQL ... schema version 2
+mvn -q compile exec:java         # expect: OK: Connected to MySQL ... schema version 3
 LAMMA_TEST_DB_URL='jdbc:mysql://localhost:3306/lamma_test' \
 LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
-mvn test                         # expect: Tests run: 100, Failures: 0, Errors: 0, Skipped: 0
+mvn test                         # expect: Tests run: 151, Failures: 0, Errors: 0, Skipped: 0
 
 # 4. Run and try it
 mvn javafx:run
@@ -259,3 +314,6 @@ Manual check in the app:
 4. A wrong PIN 5 times → even the correct PIN is refused for 5 minutes.
 5. `brew services stop mysql` → restart the app: it shows an error and a **Try again** button,
    and does not crash.
+6. Receive Money → Cash Top-Up → `25.50` → Confirm. Check that the success screen and dashboard
+   show `$25.50`, and that Recent Activity shows "Cash Top-Up +$25.50 Completed" with your local
+   time. Sign in as the second account and check that its balance and activity are unchanged.

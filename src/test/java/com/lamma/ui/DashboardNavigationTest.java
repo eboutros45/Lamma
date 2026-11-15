@@ -244,5 +244,10 @@ class DashboardNavigationTest {
             }
             return new PersonalWallet(100 + userId, userId, balance);
         }
+
+        @Override
+        public java.util.List<com.lamma.wallet.WalletTransaction> loadRecentTransactions(long userId, int limit) {
+            return java.util.List.of();
+        }
     }
 }

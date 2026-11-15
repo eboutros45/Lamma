@@ -86,6 +86,11 @@ class AsyncNavigationRaceTest {
             public PersonalWallet loadPersonalWallet(long userId) throws DatabaseException {
                 return new PersonalWallet(100 + userId, userId, new BigDecimal(userId == 1 ? "999.99" : "20.50"));
             }
+
+            @Override
+            public java.util.List<com.lamma.wallet.WalletTransaction> loadRecentTransactions(long userId, int limit) {
+                return java.util.List.of();
+            }
         };
         navigator = onFx(() -> new AppNavigator(new Stage(), registration, auth, wallets));
     }

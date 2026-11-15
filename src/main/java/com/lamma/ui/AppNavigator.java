@@ -6,6 +6,7 @@ import com.lamma.auth.PinHasher;
 import com.lamma.auth.RegistrationService;
 import com.lamma.auth.UserSession;
 import com.lamma.db.Database;
+import com.lamma.wallet.TopUpService;
 import com.lamma.wallet.WalletService;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
@@ -23,6 +24,7 @@ public final class AppNavigator {
     private RegistrationService registrationService;
     private AuthenticationService authenticationService;
     private WalletService walletService;
+    private TopUpService topUpService;
 
     /** Normal start-up: shows the startup screen, which connects to the database. */
     public AppNavigator(Stage stage) {
@@ -33,10 +35,17 @@ public final class AppNavigator {
     /** For automated UI tests: services are supplied directly and no database check runs. */
     AppNavigator(Stage stage, RegistrationService registration, AuthenticationService authentication,
                  WalletService wallets) {
+        this(stage, registration, authentication, wallets, null);
+    }
+
+    /** For automated UI tests, including the top-up screens. */
+    AppNavigator(Stage stage, RegistrationService registration, AuthenticationService authentication,
+                 WalletService wallets, TopUpService topUps) {
         this.scene = createScene(stage);
         this.registrationService = registration;
         this.authenticationService = authentication;
         this.walletService = wallets;
+        this.topUpService = topUps;
         showSignIn("", "");
     }
 
@@ -54,6 +63,7 @@ public final class AppNavigator {
         this.registrationService = new RegistrationService(database, pinHasher);
         this.authenticationService = new AuthenticationService(database, pinHasher);
         this.walletService = new WalletService(database);
+        this.topUpService = new TopUpService(database);
         showSignIn("", "");
     }
 
@@ -84,6 +94,24 @@ public final class AppNavigator {
         show(new DashboardView(this, session.currentUser().orElseThrow()));
     }
 
+    /** Receive Money choices (signed-in users only). */
+    void showReceive() {
+        if (!session.isSignedIn()) {
+            showSignIn("", "");
+            return;
+        }
+        show(new ReceiveView(this));
+    }
+
+    /** Cash top-up flow (signed-in users only). */
+    void showCashTopUp() {
+        if (!session.isSignedIn()) {
+            showSignIn("", "");
+            return;
+        }
+        show(new CashTopUpView(this, session.currentUser().orElseThrow()));
+    }
+
     void signOut() {
         session.signOut();
         showSignIn("", "You have signed out.");
@@ -112,6 +140,10 @@ public final class AppNavigator {
 
     WalletService walletService() {
         return walletService;
+    }
+
+    TopUpService topUpService() {
+        return topUpService;
     }
 
     private void show(Parent screen) {
