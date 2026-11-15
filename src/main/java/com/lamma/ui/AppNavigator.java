@@ -8,6 +8,7 @@ import com.lamma.auth.UserSession;
 import com.lamma.cards.PaymentCardService;
 import com.lamma.db.Database;
 import com.lamma.ui.AppShell.Destination;
+import com.lamma.wallet.SharedWalletMembershipService;
 import com.lamma.wallet.SharedWalletService;
 import com.lamma.wallet.TopUpService;
 import com.lamma.wallet.TransferService;
@@ -48,6 +49,7 @@ public final class AppNavigator {
     private PaymentCardService paymentCardService;
     private TransferService transferService;
     private SharedWalletService sharedWalletService;
+    private SharedWalletMembershipService membershipService;
 
     /** Normal start-up: shows the startup screen, which connects to the database. */
     public AppNavigator(Stage stage) {
@@ -115,6 +117,7 @@ public final class AppNavigator {
         this.paymentCardService = new PaymentCardService(database);
         this.transferService = new TransferService(database);
         this.sharedWalletService = new SharedWalletService(database);
+        this.membershipService = new SharedWalletMembershipService(database);
         showSignIn("", "");
     }
 
@@ -230,6 +233,29 @@ public final class AppNavigator {
         }
     }
 
+    /** Owner invites a member by phone; Back returns to the wallet. */
+    void showInviteMember(long walletId) {
+        if (requireSession()) {
+            showFlow(new InviteMemberView(this, user(), walletId), "Invite Member",
+                    () -> showSharedWalletDetail(walletId), true);
+        }
+    }
+
+    /** Owner's QR invitation; Back returns to the wallet. */
+    void showQrInvite(long walletId) {
+        if (requireSession()) {
+            showFlow(new QrInviteView(this, user(), walletId), "QR Invitation",
+                    () -> showSharedWalletDetail(walletId), true);
+        }
+    }
+
+    /** Open an invitation code to ask to join; Back returns to Wallets. */
+    void showJoinWallet() {
+        if (requireSession()) {
+            showFlow(new JoinWalletView(this, user()), "Join a Shared Wallet", this::showWallets, true);
+        }
+    }
+
     void showSendMoney() {
         if (requireSession()) {
             Destination from = destination;
@@ -297,6 +323,15 @@ public final class AppNavigator {
     /** For automated UI tests: supplies the shared-wallet service. */
     void useSharedWalletService(SharedWalletService service) {
         this.sharedWalletService = service;
+    }
+
+    SharedWalletMembershipService membershipService() {
+        return membershipService;
+    }
+
+    /** For automated UI tests: supplies the membership service. */
+    void useMembershipService(SharedWalletMembershipService service) {
+        this.membershipService = service;
     }
 
     // ---------- internals ----------

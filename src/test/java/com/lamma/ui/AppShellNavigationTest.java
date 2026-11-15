@@ -105,6 +105,12 @@ class AppShellNavigationTest {
         navigator = onFx(() -> {
             AppNavigator n = new AppNavigator(new Stage(), null, null, wallets, null, cards, null, theme);
             n.useSharedWalletService(sharedWallets);
+            n.useMembershipService(new com.lamma.wallet.SharedWalletMembershipService(null) {
+                @Override
+                public List<IncomingInvitation> incomingInvitations(long userId) {
+                    return List.of();
+                }
+            });
             return n;
         });
         onFx(() -> {

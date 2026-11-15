@@ -5,6 +5,7 @@ import com.lamma.ui.Icons.Icon;
 import com.lamma.wallet.Money;
 import com.lamma.wallet.PersonalWallet;
 import com.lamma.wallet.SharedWallet;
+import com.lamma.wallet.SharedWalletMembershipService.IncomingInvitation;
 import java.util.List;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -29,6 +30,7 @@ final class WalletsView extends VBox {
     private final Label message = Screens.message("walletsMessage");
     private final VBox sharedList = new VBox(10);
     private final Button newShared = Screens.linkButton("New shared wallet", "newSharedWalletButton");
+    private final VBox invitations = new VBox(10);
 
     WalletsView(AppNavigator navigator, AuthenticatedUser user) {
         this.navigator = navigator;
@@ -47,10 +49,15 @@ final class WalletsView extends VBox {
         VBox.setMargin(sharedHeader, new Insets(12, 0, 0, 0));
         sharedList.setId("sharedWalletList");
 
-        getChildren().addAll(Screens.title("Wallets"), Screens.sectionTitle("Your wallets"), personalWalletTile(),
-                message, sharedHeader, sharedList);
+        invitations.setId("invitationsSection");
+        Button join = Screens.linkButton("Join with an invitation code", "joinWithCodeButton");
+        join.setOnAction(event -> navigator.showJoinWallet());
+
+        getChildren().addAll(Screens.title("Wallets"), invitations, Screens.sectionTitle("Your wallets"),
+                personalWalletTile(), message, sharedHeader, sharedList, join);
         loadPersonal();
         loadShared();
+        loadInvitations();
     }
 
     private Button personalWalletTile() {
@@ -143,6 +150,95 @@ final class WalletsView extends VBox {
                     retry.setId("retrySharedWalletsButton");
                     retry.setOnAction(event -> loadShared());
                     sharedList.getChildren().setAll(problem, retry);
+                });
+    }
+
+    /** Invitations addressed to this user, with Accept / Decline. Hidden when there are none. */
+    private void loadInvitations() {
+        long userId = user.userId(); // only invitations addressed to this user
+        BackgroundWork.run(() -> navigator.membershipService().incomingInvitations(userId),
+                (List<IncomingInvitation> pending) -> {
+                    if (stillCurrent()) {
+                        showInvitations(pending, null);
+                    }
+                },
+                error -> {
+                    if (stillCurrent()) {
+                        Label problem = Screens.message("invitationsMessage");
+                        Screens.showError(problem, error);
+                        invitations.getChildren().setAll(problem);
+                    }
+                });
+    }
+
+    private void showInvitations(List<IncomingInvitation> pending, String notice) {
+        invitations.getChildren().clear();
+        Label status = Screens.message("invitationsMessage");
+        if (notice != null) {
+            Screens.showSuccess(status, notice);
+        }
+        if (pending.isEmpty()) {
+            if (notice != null) {
+                invitations.getChildren().add(status);
+            }
+            return;
+        }
+        VBox card = new VBox(6, Screens.sectionTitle("Invitations (" + pending.size() + ")"));
+        card.getStyleClass().add("card");
+        for (IncomingInvitation invitation : pending) {
+            Label text = new Label(invitation.invitedBy() + " invited you to \u201c" + invitation.walletName() + "\u201d");
+            text.setWrapText(true);
+            text.getStyleClass().add("activity-type");
+            text.setMinWidth(0);
+            HBox.setHgrow(text, Priority.ALWAYS);
+            Button accept = Screens.primaryButton("Accept", "acceptInvitation-" + invitation.invitationId());
+            accept.setDefaultButton(false);
+            Button decline = new Button("Decline");
+            decline.setId("declineInvitation-" + invitation.invitationId());
+            accept.setOnAction(event -> answer(invitation, true, accept, decline));
+            decline.setOnAction(event -> answer(invitation, false, accept, decline));
+            // Text first, buttons underneath: readable in both compact and wide layouts.
+            HBox buttons = new HBox(8, Screens.keepWidth(accept), Screens.keepWidth(decline));
+            VBox body = new VBox(8, text, buttons);
+            HBox.setHgrow(body, Priority.ALWAYS);
+            HBox row = new HBox(12, Screens.iconChip(Icon.GROUP, false), body);
+            row.setAlignment(Pos.TOP_LEFT);
+            row.getStyleClass().add("activity-row");
+            card.getChildren().add(row);
+        }
+        invitations.getChildren().addAll(card, status);
+    }
+
+    private void answer(IncomingInvitation invitation, boolean accept, Button... buttons) {
+        for (Button b : buttons) {
+            b.setDisable(true);
+        }
+        long userId = user.userId();
+        BackgroundWork.run(() -> {
+                    if (accept) {
+                        navigator.membershipService().acceptInvitation(userId, invitation.invitationId());
+                    } else {
+                        navigator.membershipService().declineInvitation(userId, invitation.invitationId());
+                    }
+                    return navigator.membershipService().incomingInvitations(userId);
+                },
+                (List<IncomingInvitation> remaining) -> {
+                    if (!stillCurrent()) {
+                        return;
+                    }
+                    if (accept) {
+                        navigator.showSharedWalletDetail(invitation.walletId());
+                    } else {
+                        showInvitations(remaining, "Invitation to \u201c" + invitation.walletName() + "\u201d declined.");
+                    }
+                },
+                error -> {
+                    if (stillCurrent()) {
+                        loadInvitations(); // fresh state from the database
+                        Label problem = Screens.message("invitationsMessage");
+                        Screens.showError(problem, error);
+                        invitations.getChildren().add(problem);
+                    }
                 });
     }
 

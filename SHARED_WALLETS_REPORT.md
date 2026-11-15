@@ -1,10 +1,10 @@
 # LAMMA Shared Wallets — Implementation Report
 
-**Current phase:** P01, Shared Wallet Foundation. **Awaiting user review.** P02 (invitations,
-roles and money) has not been started.
-**Branch:** `alpha2-development` (continues from the UI redesign, `e53efc2`). `main` is unchanged.
+**Current phase:** P02, Shared Wallet Membership & Permissions. **Awaiting user review.** P03
+(financial operations) has not been started.
+**Branch:** `alpha2-development` (P01 is `909efdd`). `main` is unchanged.
 **Verification platform:** Linux (Ubuntu 24.04), OpenJDK 21, Maven 3.9, MySQL 8.0.46, JavaFX 21
-on a virtual display. **Nothing in this phase has been run on Windows or macOS.**
+on a virtual display. **Nothing in P01 or P02 has been run on Windows or macOS.**
 
 ---
 
@@ -180,3 +180,226 @@ top-up, a saved card, a card top-up and a transfer pair, upgraded to version 6.
 | Previous commit | `e53efc2` (UI redesign) |
 | P01 commit | the commit that adds this report (hash given in the completion message) |
 | `main` | unchanged at `b9962d9`; nothing merged |
+
+---
+
+## P02 — Shared Wallet Membership & Permissions
+
+### 1. Summary of changes
+
+**Direct invitations by phone number**
+- On a shared wallet's details screen, the Owner uses **Invite Member** and enters a registered
+  user's phone number (same formats as Send Money). The invitation is **PENDING** and grants no
+  access.
+- The invitee sees it under **Wallets → Invitations (n)**: "Lina Haddad invited you to “Beirut
+  Trip”" with **Accept** and **Decline**. Accept makes them a **Contributor** and opens the wallet.
+- The Owner sees **Pending invitations** on the details screen and can **Cancel** each one.
+  Cancelled or declined invitations can't be accepted.
+- Refused, with a clear message: unknown number, the Owner's own number, an existing member, a
+  second pending invitation to the same person, someone who already has a pending join request,
+  and anyone other than the invitee answering.
+
+**QR invitations and join requests**
+- **QR Invitation** (Owner only) shows a QR code for `lamma://join/<code>`, where the code is 24
+  random URL-safe characters (18 bytes from `SecureRandom`). It contains no wallet id. The link
+  is also shown as text with **Copy**.
+- **New code** replaces the code (the old one stops working); **Turn off** removes it. Both ask
+  for confirmation. Invitations are off until the Owner turns them on.
+- Anyone signed in can use **Wallets → Join with an invitation code**, paste the link or the
+  bare code, and **Check**. The preview shows the wallet name and the Owner's name; **Request to
+  join** creates a **PENDING join request** and never grants access.
+- The Owner sees **Join requests** on the details screen and **Approves** (→ Contributor) or
+  **Rejects**. An approved or rejected request can't be handled again.
+- Invalid, turned-off or replaced codes create nothing and say "This invitation code isn't valid
+  or has been turned off." Members, people with a pending request, and people with a pending
+  invitation (who are told to accept it instead) can't request again.
+- Camera scanning is not included. The QR image is rendered with ZXing `core` (see §2), and the
+  automated test decodes the image actually shown on screen, so a future scanner can read it.
+
+**Roles**
+- New members always join as Contributor. On each member row the Owner has **Make Spender** /
+  **Make Contributor**, with confirmation. Changes are stored and shown to everyone; each member
+  sees their own role in the header badge ("You: Spender").
+- Only CONTRIBUTOR ↔ SPENDER changes are possible. The Owner's role can't be changed and no one
+  can be made Owner (no ownership transfer). No new roles, no limits.
+
+**Member management**
+- Owner: members list, Invite Member, QR Invitation, Join requests, Pending invitations, role
+  changes and **Remove** (with confirmation).
+- Other members: members list (read only) and **Leave wallet** (with confirmation), which returns
+  them to Wallets. No Owner controls are created for them at all.
+- Removal and leaving delete only the membership row, so access ends at once. Users,
+  invitations, requests and all transactions are kept, and the person can be invited again. The
+  Owner can't leave or be removed.
+
+**Authorization and integrity**
+- Every rule is in `SharedWalletMembershipService`; the screens only call it. The user id
+  always comes from the session.
+- Each change runs in **one transaction** that first locks the wallet's `shared_wallets` row
+  (`SELECT … FOR UPDATE`) and then re-reads the current state (role, invitation or request
+  status). Changes to one wallet are therefore serialized: of two simultaneous approvals one
+  succeeds and the other is told "already handled"; an accept and a cancel can't both succeed.
+- Answering a pending invitation or request uses `UPDATE … WHERE status = 'PENDING'` and checks
+  the row count, so state transitions are only PENDING → final.
+- The database enforces one pending invitation and one pending request per person per wallet and
+  one membership per person per wallet, as a second line of defence.
+- Non-members, and people asking about a wallet id that doesn't exist, get the same "not
+  available" message. Invitation and request ids that aren't theirs give a neutral message.
+- Every screen reloads from the database after each action, and shows loading, empty, success
+  and error states.
+
+**Not included (as requested):** contributions, withdrawals, expenses, payment requests,
+reimbursements, closing wallets, business wallets, general QR payments, camera scanning.
+
+### 2. Schema (V007) and the CDM/LDM
+
+The attached CDM/LDM has the entities WALLET, SHARED_WALLET and SHARED_WALLET_MEMBER, which
+already match P01:
+- SHARED_WALLET and SHARED_WALLET_MEMBER match exactly (`member_role` OWNER / CONTRIBUTOR /
+  SPENDER, `joined_at`).
+- WALLET matches, except that its `personal_user_id` is our `owner_user_id` (same meaning; NULL
+  for shared wallets).
+
+The model has **no entity for invitations or join requests**, so V007 adds the minimum:
+
+| Change | Columns | Why |
+|---|---|---|
+| `shared_wallets.invite_token` | VARCHAR(64) NULL, **UNIQUE** | The current QR code. One per wallet; NULL = off; replacing it invalidates the old one |
+| `shared_wallet_invitations` | `invitation_id`, `shared_wallet_id` → shared_wallets, `invitee_user_id` / `invited_by_user_id` → users, `status` (PENDING / ACCEPTED / DECLINED / CANCELLED), `created_at`, `responded_at` | Direct invitations, kept as history |
+| `shared_wallet_join_requests` | `request_id`, `shared_wallet_id`, `requester_user_id`, `status` (PENDING / APPROVED / REJECTED), `created_at`, `decided_at`, `decided_by_user_id` | QR join requests, kept as history |
+
+Constraints:
+- **One pending per person per wallet:** a stored generated column (`pending_invitee_id` /
+  `pending_requester_id`) equals the user id only while `status = 'PENDING'`. A UNIQUE index on
+  (wallet, that column) allows any number of answered rows but only one pending row.
+- CHECKs on the status values; an invitation can't be sent to oneself; a pending request has no
+  decision, and a decided one has both `decided_at` and `decided_by_user_id`.
+- Indexes for "my invitations" (invitee, status) and the foreign keys.
+
+Notes for the model:
+- The LDM's **PAYMENT_REQUEST** has `qr_token` / `qr_type`. These are for money requests and were
+  deliberately **not reused** for membership; mixing them would make every join code a payment
+  request.
+- The LDM's **TRANSACTION** (one row with `sender_wallet_id`, `receiver_wallet_id`,
+  `reference_code`) still differs from LAMMA's `wallet_transactions` (one row per wallet side,
+  linked by `transfer_id`), as since Alpha 2 P01. P02 moves no money, so this is unchanged. It
+  will matter in P03, when shared wallets get transactions.
+- If you add these entities to the CDM/LDM: SHARED_WALLET 1–N INVITATION, USER 1–N INVITATION
+  (invitee and inviter), SHARED_WALLET 1–N JOIN_REQUEST, USER 1–N JOIN_REQUEST (requester and
+  decider).
+
+**Dependency added:** `com.google.zxing:core:3.5.3`, which draws the QR image (Apache-2.0, Java 8
+bytecode, no further dependencies, works on Windows, macOS and Linux). Nothing else was added.
+
+### 3. Build and test results
+
+| Configuration | Run | Passed | Failed | Skipped |
+|---|---|---|---|---|
+| Baseline at `909efdd` (P01), MySQL and display | 287 | 287 | 0 | 0 |
+| No MySQL settings, no display | 312 | 124 | 0 | 188 |
+| MySQL settings, no display | 312 | 250 | 0 | 62 |
+| **MySQL settings and a display (virtual display)** | **312** | **312** | **0** | **0** |
+
+Skipped tests didn't run and are never counted as passed. There are 126 MySQL integration tests
+and 62 JavaFX UI tests; `SharedWalletMembershipFlowTest` needs both and is counted with the UI
+tests.
+
+New tests (25):
+
+| Class | Tests | Needs | Covers |
+|---|---|---|---|
+| `SharedWalletMembershipIntegrationTest` | 15 | MySQL | **Invitation lifecycle** (pending grants nothing → accept → Contributor, invitation ACCEPTED); **declined and cancelled** can't be accepted; **rules**: unknown number, Owner, member, duplicate pending, pending request; **only the Owner** invites/cancels, **only the invitee** answers; **QR lifecycle** (off by default, code format, preview, request is pending only, approve → Contributor, can't approve twice); **reject**; **new code / turn off** invalidate the old code and create nothing; QR rules (member, duplicate, invited user, garbage input); **12 threads approving the same request → exactly 1 membership**, the rest "already handled"; **accept vs cancel at the same moment, 10 rounds → never both**; **roles persist after a restart** (new service instance); role rules (Owner fixed, no OWNER grant, non-members, non-owners); **remove and leave** end access immediately, history kept, **re-invite works**; Owner can't leave or be removed; **balances and transactions unchanged**; **rollback** when inserting the member fails (invitation stays PENDING, no member) |
+| `MembershipSchemaIntegrationTest` | 3 | MySQL | Database refuses a second pending invitation/request for the same person (but allows answered history), unknown statuses, self-invitations, inconsistent decisions, duplicate codes |
+| `SharedWalletMembershipFlowTest` | 3 | MySQL + display | Real services, **both sides with two users**: Lina invites Rami → Rami accepts → sees no Owner controls → Lina promotes him → Rami sees "Spender" → Rami leaves → Lina sees one member. Lina turns on QR → **the QR image on screen is decoded** → Rami pastes it, previews, requests → Lina approves → removes him → Rami can't open the wallet. Decline, and a turned-off code |
+| `InvitationCodesTest` | 3 | — | Codes are random and URL-safe; link and bare code both parse, case-insensitive prefix; malformed input refused |
+| `QrCodesTest` | 1 | — | The QR matrix decodes back to the exact link (no display needed) |
+
+**Existing tests changed:** `SharedWalletFlowTest` and `AppShellNavigationTest` now give the
+screens a stub membership service (empty lists), and the details-screen check expects the
+Owner's two buttons (Invite Member, QR Invitation) instead of "no buttons". The test-database
+helpers drop the two new tables.
+
+**Mutation checks** (to show the concurrency tests can fail): with the `FOR UPDATE` locks removed,
+the 12-thread approval test fails (database errors instead of "already handled"), and the
+accept-versus-cancel test fails (both succeed). The locks were restored and both pass.
+
+**Upgrade check:** a database built by the previous commit (`909efdd`, schema 6) with users,
+personal and shared wallets, members and transactions, upgraded to version 7. All 13 compared
+rows (4 wallets, 2 shared wallets, 2 members, 3 transactions, 2 users) were **identical** after
+the upgrade. (A first attempt at this check compared only 6 rows because of a faulty snapshot
+query; it was discarded and redone.)
+
+**Manual run on Linux** (real app, real `lamma` database, which upgraded to 7 on launch), with
+two users:
+- Lina invited Rami to "Beirut Trip" → Rami saw "Invitations (1)", accepted, and saw the wallet
+  as a Contributor with only **Leave wallet** → Lina made him a Spender → Rami saw "You: Spender".
+- Lina turned on the QR invitation for "Flat Bills" → Rami pasted the link, saw the preview and
+  requested → Lina approved → then removed him → Rami no longer saw "Flat Bills".
+- Database afterwards: Beirut Trip has Lina (OWNER) and Rami (SPENDER); Flat Bills has only Lina;
+  the join request is APPROVED and decided by Lina. Total money unchanged at $217.50.
+- Screenshots in light and dark, wide and compact, were checked. They found three layout faults,
+  all fixed: Accept/Decline and the confirm buttons were cut to "…" on narrow windows (they now
+  keep their width, and invitation buttons sit under the text), and the QR link field was too
+  narrow to read the code.
+
+### 4. Outstanding issues and decisions for review
+
+1. **Confirmations are inline**, not pop-up dialogs: the row's buttons are replaced by the
+   question with Confirm / Cancel, as for removing a saved card. Tell us if you'd prefer dialogs.
+2. **No member status column:** removing or leaving deletes the membership row (allowed by the
+   brief). Invitations, requests and transactions keep the history. If you want to show "former
+   members", a status column would be needed.
+3. **No notification badges:** pending requests and invitations appear when the Wallets or
+   details screen is opened or refreshed, not as live alerts.
+4. **Theme is per computer, not per user** (unchanged from the redesign). In a two-user test on
+   one computer, the second user's choice also applies to the first.
+5. **Lost response on an invitation:** if the database commits but the app loses the answer,
+   a retry is refused as a duplicate ("already has a pending invitation") rather than creating a
+   second one, thanks to the unique constraint.
+6. **A harmless JavaFX CSS warning** may appear in the console when the whole signed-in screen is
+   replaced while switching accounts (`ClassCastException … from rule '*.icon'`). It is logged
+   for a screen that has already been discarded, which no longer has the theme colours. Nothing
+   visible is affected; it appears 3 times in the GUI test run. Not fixed in this phase to avoid
+   changing the theme mechanism.
+7. **Camera scanning** is deferred as requested; the payload format (`lamma://join/<code>`) is
+   ready for it.
+8. **Wallet transactions in history** (P01 item 7) still need the wallet name for shared wallets;
+   this belongs to P03.
+
+### 5. Windows manual-testing checklist
+
+Verified on Linux only. Please run this on Windows with two accounts (A and B):
+
+1. `git pull`, then `mvn -q compile exec:java` → `OK: … schema version 7 (1 migration(s) applied now)`.
+2. `mvn test` (with the `LAMMA_TEST_DB_*` variables) → `Tests run: 312, Failures: 0, Errors: 0, Skipped: 0`.
+3. `mvn javafx:run` → sign in as A → Wallets → open (or create) a shared wallet. You should see
+   **Invite Member** and **QR Invitation**.
+4. Invite Member with B's number → "Invitation sent to …". Try A's own number and an unknown
+   number → refused. Invite B again → "already has a pending invitation". The invitation appears
+   under **Pending invitations**.
+5. Sign out → sign in as B → Wallets shows **Invitations (1)** → **Accept** → the wallet opens:
+   "You: Contributor", no Invite/QR/Remove buttons, **Leave wallet** visible.
+6. Sign in as A → the member row for B → **Make Spender** → confirm → "B is now a Spender". Sign in
+   as B → "You: Spender".
+7. As A, open a second shared wallet → **QR Invitation** → **Turn on**. Check that the QR is
+   readable (black on white, also in Dark) and **Copy** puts the `lamma://join/…` link on the
+   clipboard.
+8. As B → Wallets → **Join with an invitation code** → paste → **Check** shows the wallet and A's
+   name → **Request to join** → "Request sent". B can't open the wallet yet.
+9. As A → **Join requests** → **Approve** → B is listed as Contributor. Then **Remove** B → confirm.
+   As B, the wallet is gone from Wallets.
+10. As A → QR Invitation → **New code** → as B, the old link is refused; **Turn off** → the new
+    link is refused too.
+11. As B, in a wallet B is still in → **Leave wallet** → confirm → back on Wallets without it.
+12. Resize narrow and wide, and switch Light/Dark → Invitations, the details screen and the QR
+    screen stay readable; no button text is cut to "…".
+13. Personal balances, top-ups and Send Money behave as before.
+
+### 6. Commit
+
+| Item | Value |
+|---|---|
+| Branch | `alpha2-development` (pushed) |
+| Previous commit | `909efdd` (Shared Wallet P01) |
+| P02 commit | the commit that adds this section (hash given in the completion message) |
+| `main` | unchanged; nothing merged |

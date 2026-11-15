@@ -12,7 +12,10 @@ personal wallet balance and sign out. Alpha 2 adds:
 - **Send Money** to another registered LAMMA user by phone number (P03)
 - a **Recent Activity** list
 - **Shared wallets** (Shared Wallet P01): create one, see it in Wallets, and open its details
-  and members. Invitations, contributions and expenses come in later phases.
+  and members.
+- **Shared wallet membership** (Shared Wallet P02): the Owner invites by phone number or shares a
+  QR invitation, approves join requests, switches members between Contributor and Spender and
+  removes them; members can leave. Contributions and expenses come in later phases.
 
 All money is simulated. Business accounts are still "Coming Soon".
 
@@ -60,7 +63,7 @@ JavaFX and the MySQL JDBC driver are downloaded by Maven automatically.
    mvn -q compile exec:java
    ```
 
-   Expected output: `OK: Connected to MySQL 8.0.x, database 'lamma', schema version 6 ...`
+   Expected output: `OK: Connected to MySQL 8.0.x, database 'lamma', schema version 7 ...`
 
    > Once a database has been upgraded to version 3 or later, the Alpha 1 app on `main` refuses to start
    > against it ("schema is newer than this application"). If you switch between `main` and
@@ -120,7 +123,8 @@ the **Sign In** screen:
 
 - **Signed in, the app has four destinations:** **Home** (balance, Send Money / Add Money, recent
   activity, "View all" history), **Wallets** (your personal wallet → details and full history,
-  then your **shared wallets** with **Create Shared Wallet**), **Cards** (saved cards) and
+  then your **shared wallets** with **Create Shared Wallet**, invitations waiting for you and
+  **Join with an invitation code**), **Cards** (saved cards) and
   **Profile** (account details, theme, Sign Out).
 - **Navigation follows the window width:**
   - **860 px or wider:** sidebar
@@ -151,13 +155,15 @@ mvn test
 Two groups of tests are **skipped** unless their environment is available. Maven reports them as
 `Skipped`, not passed:
 
-- **108 MySQL integration tests** run only when `LAMMA_TEST_DB_*` is set (see below).
-- **59 JavaFX UI tests** (`DashboardNavigationTest`, `AsyncNavigationRaceTest`, `CashTopUpFlowTest`,
-  `CardFlowsTest`, `SendMoneyFlowTest`, `AppShellNavigationTest`, `SharedWalletFlowTest`) need a
+- **126 MySQL integration tests** run only when `LAMMA_TEST_DB_*` is set (see below).
+- **62 JavaFX UI tests** (`DashboardNavigationTest`, `AsyncNavigationRaceTest`, `CashTopUpFlowTest`,
+  `CardFlowsTest`, `SendMoneyFlowTest`, `AppShellNavigationTest`, `SharedWalletFlowTest`,
+  `SharedWalletMembershipFlowTest`) need a
   graphical display. They always run on macOS and Windows; on Linux they need `DISPLAY` (a
-  desktop session, or `xvfb-run`). No window is shown.
+  desktop session, or `xvfb-run`). No window is shown. `SharedWalletMembershipFlowTest` (3 tests)
+  needs MySQL as well and is counted here.
 
-With neither available, expect `Tests run: 287, Failures: 0, Errors: 0, Skipped: 167`. To run the
+With neither available, expect `Tests run: 312, Failures: 0, Errors: 0, Skipped: 188`. To run the
 MySQL tests, point them at the test database:
 
 ```bash
@@ -166,8 +172,8 @@ LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
 mvn test
 ```
 
-Expect `Skipped: 59` if no display is available (the JavaFX tests), and with a display as well,
-`Tests run: 287, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
+Expect `Skipped: 62` if no display is available (the JavaFX tests), and with a display as well,
+`Tests run: 312, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
 `xvfb-run -a mvn test` (with the variables above).
 
 These tests drop and recreate all tables in that database, so they refuse to run unless the
@@ -204,7 +210,7 @@ MySQL                                 users, wallets, schema_version
 - `src/main/resources/db/migration/`: versioned schema scripts.
 - `database/create_database.sql`: one-time admin setup (database and user).
 
-## Database schema (version 6)
+## Database schema (version 7)
 
 ### `users` (USER)
 
@@ -266,6 +272,41 @@ A shared wallet **is a wallet**: a `wallets` row with `wallet_type = 'SHARED'`, 
 - **Creation** inserts the wallet, its `shared_wallets` row and the creator's `OWNER` membership
   in **one transaction**.
 
+### Invitations and join requests (V007)
+
+The LDM has no entities for invitations, so V007 adds the smallest tables that make them safe:
+
+- **`shared_wallets.invite_token`**: the current QR/link code (NULL when QR invitations are off),
+  **UNIQUE**. It is a random 24-character code (18 bytes from `SecureRandom`), never the wallet id.
+- **`shared_wallet_invitations`**: a direct invitation by phone number: wallet, invitee, inviter,
+  `status` (`PENDING` / `ACCEPTED` / `DECLINED` / `CANCELLED`), `created_at`, `responded_at`.
+- **`shared_wallet_join_requests`**: a request created by opening a QR invitation: wallet,
+  requester, `status` (`PENDING` / `APPROVED` / `REJECTED`), `created_at`, and `decided_at` /
+  `decided_by_user_id` (a CHECK requires both once decided, neither while pending).
+- **One pending invitation / request per person per wallet** is enforced by the database: a
+  stored generated column holds the user id only while the row is `PENDING`, and it has a
+  UNIQUE index together with the wallet id. Answered rows are kept as history.
+
+Rules (all enforced in `SharedWalletMembershipService`, never only in the UI):
+
+- Only the Owner invites, shares the QR code, approves or rejects requests, changes roles and
+  removes members. New members always join as **Contributor**; the Owner can switch a member
+  between Contributor and Spender. The Owner can't leave, be removed or change their own role.
+- An invitation or a QR code **never grants access by itself**: the invitee accepts, or the Owner
+  approves the request. Only the invitee can answer an invitation.
+- Every change locks the wallet's `shared_wallets` row (`SELECT … FOR UPDATE`) and re-checks the
+  current state in the same transaction, so two approvals, or an accept and a cancel at the same
+  moment, can't both succeed or create a duplicate membership.
+- Removing a member or leaving deletes the membership row only, so access ends immediately;
+  users, invitations, requests and transactions are kept. A removed member can be invited again.
+- Someone who isn't a member gets the same answer as for a wallet that doesn't exist.
+
+**QR payload:** `lamma://join/<code>`. The QR shows this link; a future camera scanner can read
+it as is. Without a scanner, the link or the bare 24-character code can be pasted under
+**Wallets → Join with an invitation code**. **New code** replaces the code (the old one stops
+working), and **Turn off** removes it. QR images are drawn with ZXing `core` 3.5.3 (Apache-2.0,
+no other dependencies), always black on white.
+
 ### `payment_cards` (Alpha 2 P02)
 
 Saved cards hold **metadata only**. There is no column for the card number or CVV.
@@ -302,8 +343,10 @@ first.
 | 4 | `V004__add_payment_cards_and_card_top_ups.sql` | `payment_cards`; `CARD_TOP_UP` with card snapshot columns (Alpha 2 P02) |
 | 5 | `V005__add_wallet_transfers.sql` | `TRANSFER_OUT` / `TRANSFER_IN`, `transfer_id`, `counterparty_wallet_id` (Alpha 2 P03) |
 | 6 | `V006__add_shared_wallets.sql` | `wallets.name`, `wallets.status`, type `SHARED`, `shared_wallets`, `shared_wallet_members` (Shared Wallet P01) |
+| 7 | `V007__add_shared_wallet_invitations.sql` | `shared_wallets.invite_token`, `shared_wallet_invitations`, `shared_wallet_join_requests` (Shared Wallet P02) |
 
-When adding a table that references `users`, `wallets`, `wallet_transactions`, `payment_cards`, `shared_wallets` or `shared_wallet_members`, also add it to
+When adding a table that references `users`, `wallets`, `wallet_transactions`, `payment_cards`, `shared_wallets`, `shared_wallet_members`, `shared_wallet_invitations` or
+`shared_wallet_join_requests`, also add it to
 the `DROP TABLE` lists in `src/test/java/com/lamma/testsupport/TestDatabase.java` and
 `SchemaConstraintsIntegrationTest`, child tables first.
 
@@ -441,10 +484,10 @@ mysql -u root < database/create_database.sql
 cp config/database.properties.example config/database.properties   # then set db.password
 
 # 3. Verify
-mvn -q compile exec:java         # expect: OK: Connected to MySQL ... schema version 6
+mvn -q compile exec:java         # expect: OK: Connected to MySQL ... schema version 7
 LAMMA_TEST_DB_URL='jdbc:mysql://localhost:3306/lamma_test' \
 LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
-mvn test                         # expect: Tests run: 287, Failures: 0, Errors: 0, Skipped: 0
+mvn test                         # expect: Tests run: 312, Failures: 0, Errors: 0, Skipped: 0
 
 # 4. Run and try it
 mvn javafx:run
@@ -475,3 +518,8 @@ Manual check in the app:
    - After **Confirm and Send**, both dashboards show the new balances.
    - Recent Activity shows "Money Sent · To …" for the sender and "Money Received · From …" for
      the recipient.
+9. Shared wallets, with both accounts: the first creates a shared wallet and, on its details
+   screen, uses **Invite Member** with the second account's number. The second account sees the
+   invitation under Wallets, accepts it and appears as a Contributor. The first account then uses
+   **QR Invitation**, copies the link, and the second pastes it under **Join with an invitation
+   code** for another wallet; the first approves the request.

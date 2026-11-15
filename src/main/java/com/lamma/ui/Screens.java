@@ -112,6 +112,12 @@ final class Screens {
         return button;
     }
 
+    /** Buttons in a row with wrapping text keep their full label instead of shrinking to "...". */
+    static <T extends javafx.scene.control.Control> T keepWidth(T control) {
+        control.setMinWidth(Region.USE_PREF_SIZE);
+        return control;
+    }
+
     static Button withIcon(Button button, Icon icon) {
         button.setGraphic(Icons.icon(icon, 18));
         button.setGraphicTextGap(8);

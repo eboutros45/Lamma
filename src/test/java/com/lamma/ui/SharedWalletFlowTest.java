@@ -87,6 +87,22 @@ class SharedWalletFlowTest {
         navigator = onFx(() -> {
             AppNavigator n = new AppNavigator(new Stage(), null, null, wallets);
             n.useSharedWalletService(shared);
+            n.useMembershipService(new com.lamma.wallet.SharedWalletMembershipService(null) {
+                @Override
+                public List<IncomingInvitation> incomingInvitations(long userId) {
+                    return List.of();
+                }
+
+                @Override
+                public List<JoinRequest> pendingJoinRequests(long ownerId, long walletId) {
+                    return List.of();
+                }
+
+                @Override
+                public List<OutgoingInvitation> pendingInvitations(long ownerId, long walletId) {
+                    return List.of();
+                }
+            });
             return n;
         });
     }
@@ -140,7 +156,8 @@ class SharedWalletFlowTest {
         assertEquals("$0.00 of $1,500.00 (0%)", text("#targetLabel"));
         assertEquals("Owner", text("#memberRole-1"));
         assertTrue(screenText().contains("Lina Haddad (you)"));
-        assertEquals(List.of(), buttonsOnScreen(), "no money, invite or expense buttons in P01");
+        // Shared Wallet P02 added the Owner's membership actions; still nothing for money or expenses.
+        assertEquals(List.of("inviteMemberButton", "shareQrButton"), buttonsOnScreen());
 
         clickIn(navigator.windowRoot(), "#flowBackButton");
         assertInstanceOf(WalletsView.class, onFx(navigator::currentScreen));
