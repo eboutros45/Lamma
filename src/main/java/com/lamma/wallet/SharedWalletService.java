@@ -25,7 +25,9 @@ import java.util.List;
  * {@code user_id = ?} with the session's user id, and a wallet the user is not a member of
  * gives the same answer as one that does not exist.
  *
- * <p>No money moves into or out of shared wallets in this phase.
+ * <p>A shared wallet can be designated as a gift for a registered user (P04B), stored in the
+ * LDM's {@code gift_recipient_id}. It is set only when the wallet is created and there is no way
+ * to change it; it is information only (no membership, ownership or payout).
  */
 public class SharedWalletService {
 
@@ -42,8 +44,27 @@ public class SharedWalletService {
             "Your shared wallets could not be loaded because the database is unavailable. "
             + "Check that MySQL is running and try again.";
 
-    /** Validated creation input. */
-    public record NewSharedWallet(String name, String purpose, String description, BigDecimal targetAmount) {
+    static final String GIFT_SELF_MESSAGE = "You can't be the gift recipient of a wallet you create.";
+    static final String GIFT_RECIPIENT_GONE_MESSAGE =
+            "The gift recipient can no longer be chosen. Please look them up again.";
+
+    /**
+     * Validated creation input.
+     *
+     * @param giftRecipientUserId the registered user this wallet is a gift for (found with
+     *                            {@link #findGiftRecipient}), or null for an ordinary shared wallet
+     */
+    public record NewSharedWallet(String name, String purpose, String description, BigDecimal targetAmount,
+                                  Long giftRecipientUserId) {
+
+        public NewSharedWallet(String name, String purpose, String description, BigDecimal targetAmount) {
+            this(name, purpose, description, targetAmount, null);
+        }
+
+        /** The same input, designated as a gift for this user. */
+        public NewSharedWallet asGiftFor(long recipientUserId) {
+            return new NewSharedWallet(name, purpose, description, targetAmount, recipientUserId);
+        }
     }
 
     private final Database database;
@@ -103,23 +124,53 @@ public class SharedWalletService {
      *
      * @return the new wallet's id
      */
-    public long create(long creatorUserId, NewSharedWallet input) throws DatabaseException {
+    public long create(long creatorUserId, NewSharedWallet input) throws ValidationException, DatabaseException {
         Connection conn = connect(FAILED_MESSAGE);
         try (conn) {
             conn.setAutoCommit(false);
             try {
+                if (input.giftRecipientUserId() != null) {
+                    // Checked again here, in the same transaction that saves it.
+                    if (input.giftRecipientUserId() == creatorUserId) {
+                        throw new ValidationException(GIFT_SELF_MESSAGE);
+                    }
+                    if (TransferService.recipientById(conn, input.giftRecipientUserId()) == null) {
+                        throw new ValidationException(GIFT_RECIPIENT_GONE_MESSAGE);
+                    }
+                }
                 long walletId = insertWallet(conn, input.name());
                 insertSharedWallet(conn, walletId, input);
                 insertOwnerMembership(conn, creatorUserId, walletId,
                         LocalDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS));
                 conn.commit();
                 return walletId;
-            } catch (SQLException | RuntimeException e) {
+            } catch (SQLException | RuntimeException | ValidationException e) {
                 conn.rollback();
                 throw e;
             }
         } catch (SQLException e) {
             throw new DatabaseException(FAILED_MESSAGE, e);
+        }
+    }
+
+    /**
+     * Looks up a registered LAMMA user by phone number to be a gift wallet's recipient (the same
+     * lookup as Send Money). The creator can't choose themself.
+     */
+    public TransferService.Recipient findGiftRecipient(long creatorUserId, String phone)
+            throws ValidationException, DatabaseException {
+        String normalized = com.lamma.auth.PhoneNumbers.normalize(phone);
+        try (Connection conn = connect(TransferService.LOOKUP_FAILED_MESSAGE)) {
+            TransferService.Recipient r = TransferService.recipientByPhone(conn, normalized);
+            if (r == null) {
+                throw new ValidationException(TransferService.NOT_FOUND_MESSAGE);
+            }
+            if (r.userId() == creatorUserId) {
+                throw new ValidationException(GIFT_SELF_MESSAGE);
+            }
+            return r;
+        } catch (SQLException e) {
+            throw new DatabaseException(TransferService.LOOKUP_FAILED_MESSAGE, e);
         }
     }
 
@@ -198,15 +249,20 @@ public class SharedWalletService {
 
     private static void insertSharedWallet(Connection conn, long walletId, NewSharedWallet input) throws SQLException {
         String sql = "INSERT INTO shared_wallets (shared_wallet_id, gift_recipient_id, purpose, description, target_amount)"
-                + " VALUES (?, NULL, ?, ?, ?)";
+                + " VALUES (?, ?, ?, ?, ?)";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, walletId);
-            ps.setString(2, input.purpose());
-            ps.setString(3, input.description());
-            if (input.targetAmount() == null) {
-                ps.setNull(4, Types.DECIMAL);
+            if (input.giftRecipientUserId() == null) {
+                ps.setNull(2, Types.BIGINT);
             } else {
-                ps.setBigDecimal(4, input.targetAmount());
+                ps.setLong(2, input.giftRecipientUserId());
+            }
+            ps.setString(3, input.purpose());
+            ps.setString(4, input.description());
+            if (input.targetAmount() == null) {
+                ps.setNull(5, Types.DECIMAL);
+            } else {
+                ps.setBigDecimal(5, input.targetAmount());
             }
             ps.executeUpdate();
         }
@@ -232,15 +288,16 @@ public class SharedWalletService {
 
     /** Shared wallet columns plus the viewing member's role; the WHERE clause limits by member. */
     private static final String SUMMARY_SELECT = "SELECT w.wallet_id, w.name, w.balance, s.purpose, s.description,"
-            + " s.target_amount, m.member_role"
+            + " s.target_amount, m.member_role, CONCAT(g.first_name, ' ', g.last_name) AS gift_recipient_name"
             + " FROM shared_wallet_members m"
             + " JOIN shared_wallets s ON s.shared_wallet_id = m.shared_wallet_id"
-            + " JOIN wallets w ON w.wallet_id = s.shared_wallet_id AND w.wallet_type = 'SHARED'";
+            + " JOIN wallets w ON w.wallet_id = s.shared_wallet_id AND w.wallet_type = 'SHARED'"
+            + " LEFT JOIN users g ON g.user_id = s.gift_recipient_id";
 
     private static SharedWallet.Summary readSummary(ResultSet rs) throws SQLException {
         return new SharedWallet.Summary(rs.getLong("wallet_id"), rs.getString("name"), rs.getBigDecimal("balance"),
                 rs.getString("purpose"), rs.getString("description"), rs.getBigDecimal("target_amount"),
-                MemberRole.valueOf(rs.getString("member_role")));
+                MemberRole.valueOf(rs.getString("member_role")), rs.getString("gift_recipient_name"));
     }
 
     private static String clean(String text) {

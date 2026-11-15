@@ -17,9 +17,19 @@ public final class SharedWallet {
      * @param description  optional (null if not given)
      * @param targetAmount optional (null if not given)
      * @param myRole       the viewing user's role in this wallet
+     * @param giftRecipientName "First Last" of the gift recipient, or null if this isn't a gift wallet
      */
     public record Summary(long walletId, String name, BigDecimal balance, String purpose, String description,
-                          BigDecimal targetAmount, MemberRole myRole) {
+                          BigDecimal targetAmount, MemberRole myRole, String giftRecipientName) {
+
+        public Summary(long walletId, String name, BigDecimal balance, String purpose, String description,
+                       BigDecimal targetAmount, MemberRole myRole) {
+            this(walletId, name, balance, purpose, description, targetAmount, myRole, null);
+        }
+
+        public boolean isGift() {
+            return giftRecipientName != null;
+        }
     }
 
     /** One member of a shared wallet. No PIN, balance or other private data. */

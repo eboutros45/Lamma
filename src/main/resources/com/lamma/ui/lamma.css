@@ -542,3 +542,19 @@
 .suggestion-button:hover, .suggestion-button:focused {
     -fx-background-color: -lamma-primary-soft;
 }
+
+/* ---------- Check boxes (gift wallet switch, expense participants) ---------- */
+.check-box {
+    -fx-text-fill: -lamma-text;
+}
+.check-box .box {
+    -fx-background-color: -lamma-border, -lamma-surface;
+    -fx-background-insets: 0, 1;
+    -fx-background-radius: 4, 3;
+}
+.check-box:selected .box {
+    -fx-background-color: -lamma-primary, -lamma-primary;
+}
+.check-box:selected .mark {
+    -fx-background-color: -lamma-on-primary;
+}

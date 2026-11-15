@@ -781,4 +781,97 @@ cards.
 | Item | Value |
 |---|---|
 | Branch | `alpha2-development` (pushed) |
-| P04A commit | the commit that adds this section (hash given in the completion message) |
+| P04A commit | `ff8a9b3` |
+
+---
+
+## P04B — Gift Wallet Option
+
+### 1. Summary of changes
+
+- **Creating the wallet:** the New Shared Wallet form has a **This is a gift wallet** check box.
+  - **Off** (the default): the form and the result are exactly as before.
+  - **On:** a recipient section appears, with the phone number, contact suggestions (P04A),
+    **Find**, and the person found ("Gift for Nour Saad · +961 71 555 666").
+- **Choosing the recipient:**
+  - The recipient must be a **registered LAMMA user**, found with the same lookup as Send Money,
+    and not the creator.
+  - Creating with the switch on but nobody found is refused: "Choose the gift recipient: enter
+    their phone number and press Find."
+  - Editing the number after a lookup clears the choice.
+- **Saving:** the recipient is stored in the LDM's existing **`shared_wallets.gift_recipient_id`**.
+  `create()` re-checks it **inside the same transaction** that saves the wallet (a registered user
+  other than the creator), so a forged or stale id is refused and nothing is saved.
+- **Display:** members see a "Gift for Nour Saad" badge on the wallet's balance card and "Gift for
+  …" on its Wallets tile.
+- **Information only:**
+  - No new wallet type and no separate balance (still `wallet_type = 'SHARED'`).
+  - Owner / Contributor / Spender work exactly as before.
+  - The recipient is **not** made a member: they can't see the wallet or its history, and receive
+    nothing.
+  - No ownership transfer and no payout.
+- **The recipient can't be changed:** it is set only at creation, and no service method or SQL
+  statement updates `gift_recipient_id`. A test runs every membership and money operation on a
+  gift wallet and checks that the stored recipient is unchanged.
+
+### 2. Schema and the LDM
+
+**No migration.** P04B uses the LDM column `SHARED_WALLET.gift_recipient_id`, created by V006 with
+a foreign key to `users`.
+
+**Files**
+- Changed: `SharedWalletService` (`findGiftRecipient`, the gift check in `create`,
+  `NewSharedWallet.asGiftFor`, the recipient's name in summaries), `SharedWallet.Summary`
+  (+ `giftRecipientName`, `isGift()`), `CreateSharedWalletView`, `SharedWalletDetailView` (badge),
+  `WalletsView` (tile), `lamma.css` (check boxes).
+- `create()` now also declares `ValidationException`. Its callers already handled it.
+
+### 3. Build and test results
+
+| Configuration | Run | Passed | Failed | Skipped |
+|---|---|---|---|---|
+| Baseline at `ff8a9b3` (P04A), MySQL and display | 350 | 350 | 0 | 0 |
+| No MySQL settings, no display | 355 | 131 | 0 | 224 |
+| MySQL settings, no display | 355 | 287 | 0 | 68 |
+| **MySQL settings and a display (virtual display)** | **355** | **355** | **0** | **0** |
+
+New tests (5):
+
+| Class | Tests | Needs | Covers |
+|---|---|---|---|
+| `GiftWalletIntegrationTest` | 3 | MySQL | The gift wallet stores the recipient's id. Members see the name; it is still a SHARED wallet with the normal balance. **The recipient has no access** (not listed; details and history refused) and **gets no money**. Normal roles apply (a Contributor still can't withdraw). The lookup refuses unknown numbers, the creator's own number and invalid input; **`create` refuses the creator's id and a nonexistent id, saving nothing**. An ordinary wallet has no recipient. **The recipient is unchanged** after invitations, role changes, QR codes, contributions, a send and a member leaving |
+| `GiftWalletFlowTest` | 2 | MySQL + display | Real screens: the switch reveals the recipient section; creating without a recipient is refused; the creator's own number is refused; the recipient is picked from a **contact suggestion**, then Find, then Create; the details show "Gift for Nour Saad" and the Owner's money buttons; the Wallets tile shows it. Turning the switch on and off again creates an ordinary wallet |
+
+**Found and fixed:** on the real-app screenshot, the check box's label was nearly invisible
+(JavaFX's default check box colours don't use the theme). Check boxes now use the theme's text,
+surface and primary colours; checked again in light and dark.
+
+**Real app on Linux:**
+- Lina created "Rami's Graduation" ($300 target) as a gift for Rami, choosing him from the contact
+  suggestion. The details and the tile show "Gift for Rami Khoury".
+- Database: `shared_wallets` row 16 has `gift_recipient_id = 13` (Rami). The dev database now
+  contains this wallet.
+
+### 4. Known limitations
+
+1. **Fixed after creation:** the recipient can't be corrected. A mistake means creating a new
+   wallet (the empty one can be left unused; closing wallets isn't implemented).
+2. **The recipient isn't notified** and can't see the wallet (by design in this phase).
+3. **Name only:** members see the recipient's name, not their phone number.
+
+### 5. Windows manual-testing steps
+
+1. `mvn test` (with the `LAMMA_TEST_DB_*` variables) → `Tests run: 355, Failures: 0, Errors: 0, Skipped: 0`.
+2. Wallets → New shared wallet → leave the switch off → create → it works as before (no "Gift for").
+3. New shared wallet → switch on → Create without a recipient → refused. Enter your own number →
+   Find → refused. Choose another registered user (type a contact's name and pick the suggestion) →
+   Find → their name appears → Create → the details show "Gift for …".
+4. Sign in as the recipient → the wallet isn't in their Wallets.
+5. Check the switch and its label in Light and Dark.
+
+### 6. Commit
+
+| Item | Value |
+|---|---|
+| Branch | `alpha2-development` (pushed) |
+| P04B commit | the commit that adds this section (hash given in the completion message) |

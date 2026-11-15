@@ -24,6 +24,9 @@ personal wallet balance and sign out. Alpha 2 adds:
   need your current PIN), and import a private contact book from CSV or vCard files. Contacts
   are suggested under every recipient phone field. The Owner changes a member's role with a
   dropdown.
+- **Gift wallets** (P04B): when creating a shared wallet, switch on **This is a gift wallet** and
+  choose a registered LAMMA user as the recipient. Members see "Gift for …" on the wallet. It is
+  information only: the recipient doesn't become a member and nothing is paid out.
 
 All money is simulated. Business accounts are still "Coming Soon".
 
@@ -175,16 +178,17 @@ mvn test
 Two groups of tests are **skipped** unless their environment is available. Maven reports them as
 `Skipped`, not passed:
 
-- **153 MySQL integration tests** run only when `LAMMA_TEST_DB_*` is set (see below).
-- **66 JavaFX UI tests** (`DashboardNavigationTest`, `AsyncNavigationRaceTest`, `CashTopUpFlowTest`,
+- **156 MySQL integration tests** run only when `LAMMA_TEST_DB_*` is set (see below).
+- **68 JavaFX UI tests** (`DashboardNavigationTest`, `AsyncNavigationRaceTest`, `CashTopUpFlowTest`,
   `CardFlowsTest`, `SendMoneyFlowTest`, `AppShellNavigationTest`, `SharedWalletFlowTest`,
-  `SharedWalletMembershipFlowTest`, `SharedWalletFundsFlowTest`, `AccountAndContactsFlowTest`) need a
+  `SharedWalletMembershipFlowTest`, `SharedWalletFundsFlowTest`, `AccountAndContactsFlowTest`,
+  `GiftWalletFlowTest`) need a
   graphical display. They always run on macOS and Windows; on Linux they need `DISPLAY` (a
   desktop session, or `xvfb-run`). No window is shown. `SharedWalletMembershipFlowTest` (3 tests),
-  `SharedWalletFundsFlowTest` (2) and `AccountAndContactsFlowTest` (2) need MySQL as well and are
-  counted here.
+  `SharedWalletFundsFlowTest` (2), `AccountAndContactsFlowTest` (2) and `GiftWalletFlowTest` (2) need
+  MySQL as well and are counted here.
 
-With neither available, expect `Tests run: 350, Failures: 0, Errors: 0, Skipped: 219`. To run the
+With neither available, expect `Tests run: 355, Failures: 0, Errors: 0, Skipped: 224`. To run the
 MySQL tests, point them at the test database:
 
 ```bash
@@ -193,8 +197,8 @@ LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
 mvn test
 ```
 
-Expect `Skipped: 66` if no display is available (the JavaFX tests), and with a display as well,
-`Tests run: 350, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
+Expect `Skipped: 68` if no display is available (the JavaFX tests), and with a display as well,
+`Tests run: 355, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
 `xvfb-run -a mvn test` (with the variables above).
 
 These tests drop and recreate all tables in that database, so they refuse to run unless the
@@ -287,7 +291,7 @@ A shared wallet **is a wallet**: a `wallets` row with `wallet_type = 'SHARED'`, 
   (`ACTIVE` only for now). `owner_user_id` is the LDM's `personal_user_id`: required for PERSONAL
   wallets and **NULL for SHARED** ones.
 - **`shared_wallets`**: `shared_wallet_id` (primary key and foreign key to `wallets`),
-  `gift_recipient_id` (optional, references `users`, not used yet), `purpose` (≤80), `description`
+  `gift_recipient_id` (optional, references `users`; set when a gift wallet is created, P04B), `purpose` (≤80), `description`
   (≤500), `target_amount` (optional, > 0).
 - **`shared_wallet_members`**: primary key (`user_id`, `shared_wallet_id`), `member_role`
   (`OWNER` / `CONTRIBUTOR` / `SPENDER`) and `joined_at` (UTC). **Having a membership row is what
@@ -548,7 +552,7 @@ cp config/database.properties.example config/database.properties   # then set db
 mvn -q compile exec:java         # expect: OK: Connected to MySQL ... schema version 9
 LAMMA_TEST_DB_URL='jdbc:mysql://localhost:3306/lamma_test' \
 LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
-mvn test                         # expect: Tests run: 350, Failures: 0, Errors: 0, Skipped: 0
+mvn test                         # expect: Tests run: 355, Failures: 0, Errors: 0, Skipped: 0
 
 # 4. Run and try it
 mvn javafx:run

@@ -232,6 +232,12 @@ final class SharedWalletDetailView extends VBox {
         balance.setId("sharedWalletBalance");
         balance.getStyleClass().add("balance");
         VBox hero = new VBox(6, top, balance, Screens.caption("Shared wallet balance · USD · simulated money"));
+        if (w.isGift()) {
+            Label giftFor = new Label("Gift for " + w.giftRecipientName());
+            giftFor.setId("giftRecipientLabel");
+            giftFor.getStyleClass().addAll("badge", "on-hero");
+            hero.getChildren().add(1, giftFor);
+        }
         hero.getStyleClass().add("hero-card");
         hero.setMaxWidth(Double.MAX_VALUE);
         return hero;

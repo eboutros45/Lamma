@@ -75,7 +75,8 @@ final class WalletsView extends VBox {
     private Button sharedWalletTile(SharedWallet.Summary w) {
         Label name = new Label(w.name());
         name.getStyleClass().add("card-title");
-        String about = w.purpose() != null ? w.purpose()
+        String about = w.isGift() ? "Gift for " + w.giftRecipientName()
+                : w.purpose() != null ? w.purpose()
                 : w.description() != null ? w.description() : "Shared wallet · " + w.myRole().displayName();
         Label subtitle = Screens.caption(about);
         subtitle.getStyleClass().add("hint");
