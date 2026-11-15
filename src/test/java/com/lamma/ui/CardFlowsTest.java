@@ -264,7 +264,7 @@ class CardFlowsTest {
     @Test
     void addCardFromPaymentMethodsRequiresNickname() throws Exception {
         signIn(LINA);
-        click("#paymentMethodsButton");
+        clickNav("#navCards"); // Cards destination (redesign: was a dashboard button)
         waitUntil(() -> lookup("#noCardsLabel") != null);
         click("#addCardButton");
 
@@ -361,7 +361,7 @@ class CardFlowsTest {
 
     private void openPaymentMethods(SavedCard card) throws Exception {
         signIn(LINA);
-        click("#paymentMethodsButton");
+        clickNav("#navCards"); // Cards destination (redesign: was a dashboard button)
         waitUntil(() -> lookup("#cardNickname-" + card.cardId()) != null);
     }
 
@@ -456,6 +456,16 @@ class CardFlowsTest {
     private String fieldText(String id) throws Exception {
         Node node = lookup(id);
         return onFx(() -> ((TextInputControl) node).getText());
+    }
+
+    /** Navigation buttons live in the app shell, outside the current screen. */
+    private void clickNav(String id) throws Exception {
+        Node node = onFx(() -> navigator.windowRoot().lookup(id));
+        assertNotNull(node, "no navigation item " + id);
+        onFx(() -> {
+            ((ButtonBase) node).fire();
+            return null;
+        });
     }
 
     private void click(String id) throws Exception {

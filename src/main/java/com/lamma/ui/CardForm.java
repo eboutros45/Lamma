@@ -4,11 +4,8 @@ import com.lamma.auth.ValidationException;
 import com.lamma.cards.CardMetadata;
 import com.lamma.cards.CardValidator;
 import java.time.YearMonth;
-import javafx.geometry.Pos;
-import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
-import javafx.scene.layout.GridPane;
 
 /**
  * Card-entry fields (cardholder, number, expiry, CVV, and optionally a nickname).
@@ -23,7 +20,7 @@ final class CardForm {
     private final TextField expiry = new TextField();
     private final PasswordField cvv = new PasswordField();
     private final TextField nickname = new TextField();
-    private final GridPane grid = new GridPane();
+    private final javafx.scene.layout.VBox grid = new javafx.scene.layout.VBox();
 
     CardForm(boolean withNickname) {
         holder.setId("cardholderField");
@@ -37,20 +34,20 @@ final class CardForm {
         nickname.setId("nicknameField");
         nickname.setPromptText("e.g. Personal Visa");
 
-        grid.setHgap(10);
-        grid.setVgap(10);
-        grid.setAlignment(Pos.CENTER);
-        int row = 0;
+        grid.setSpacing(12);
+        grid.setMaxWidth(420);
         if (withNickname) {
-            grid.addRow(row++, new Label("Card nickname"), nickname);
+            grid.getChildren().add(Screens.field("Card nickname", nickname));
         }
-        grid.addRow(row++, new Label("Cardholder name"), holder);
-        grid.addRow(row++, new Label("Card number"), number);
-        grid.addRow(row++, new Label("Expiration date"), expiry);
-        grid.addRow(row, new Label("CVV"), cvv);
+        javafx.scene.layout.VBox expiryField = Screens.field("Expiration date", expiry);
+        javafx.scene.layout.VBox cvvField = Screens.field("CVV", cvv);
+        javafx.scene.layout.HBox.setHgrow(expiryField, javafx.scene.layout.Priority.ALWAYS);
+        javafx.scene.layout.HBox.setHgrow(cvvField, javafx.scene.layout.Priority.ALWAYS);
+        grid.getChildren().addAll(Screens.field("Cardholder name", holder), Screens.field("Card number", number),
+                new javafx.scene.layout.HBox(12, expiryField, cvvField));
     }
 
-    GridPane view() {
+    javafx.scene.layout.VBox view() {
         return grid;
     }
 

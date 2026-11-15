@@ -14,6 +14,10 @@ personal wallet balance and sign out. Alpha 2 adds:
 
 All money is simulated. Business accounts are still "Coming Soon".
 
+The interface was redesigned before P04. It has light and dark themes plus a System option, and
+uses a sidebar on wide windows and a bottom bar on narrow ones. See **Look and navigation**
+below.
+
 > This is a prototype for **simulated money**. The six-digit PIN, PBKDF2 hashing and sign-in lockout
 > are reasonable for that purpose. They are **not** production-grade financial security.
 
@@ -110,6 +114,32 @@ the **Sign In** screen:
   Errors are shown for unknown numbers, invalid numbers, sending to yourself, invalid amounts
   and insufficient funds.
 
+## Look and navigation
+
+- **Signed in, the app has four destinations:** **Home** (balance, Send Money / Add Money, recent
+  activity, "View all" history), **Wallets** (your personal wallet → details and full history;
+  shared wallets will be listed here later), **Cards** (saved cards) and **Profile** (account
+  details, theme, Sign Out).
+- **Navigation follows the window width:**
+  - **860 px or wider:** sidebar
+  - **below 820 px:** bottom bar
+  - **in between:** the layout keeps its current mode, so it doesn't flicker while you resize
+
+  The smallest window is 380×600.
+- **Actions** (Send Money, Add Money, cash and card top-ups, Add Card, wallet details) open with a
+  **Back** button that returns to where you started.
+- **Theme:** Profile → Appearance → **System** (default), **Light** or **Dark**. The change applies
+  immediately and is saved on this computer with Java's `Preferences` (the registry on Windows, a
+  plist on macOS, `~/.java` on Linux).
+  - "System" reads the OS setting when LAMMA starts or when you choose System; it doesn't follow
+    changes made while LAMMA is open.
+  - JavaFX only reports the system colour scheme from version 22 (which needs JDK 21), so
+    LAMMA asks the OS directly.
+- **Styling:** `lamma.css` holds all layout and components. `theme-light.css` and
+  `theme-dark.css` contain only colour tokens. Icons are vector paths from Google's Material Icons
+  (Apache-2.0) in `Icons.java`. There are no extra UI libraries: AtlantaFX and Ikonli were
+  evaluated (both compatible) but not needed.
+
 ## Run the tests
 
 ```bash
@@ -120,12 +150,12 @@ Two groups of tests are **skipped** unless their environment is available. Maven
 `Skipped`, not passed:
 
 - **95 MySQL integration tests** run only when `LAMMA_TEST_DB_*` is set (see below).
-- **42 JavaFX UI tests** (`DashboardNavigationTest`, `AsyncNavigationRaceTest`, `CashTopUpFlowTest`,
-  `CardFlowsTest`, `SendMoneyFlowTest`) need a
+- **51 JavaFX UI tests** (`DashboardNavigationTest`, `AsyncNavigationRaceTest`, `CashTopUpFlowTest`,
+  `CardFlowsTest`, `SendMoneyFlowTest`, `AppShellNavigationTest`) need a
   graphical display. They always run on macOS and Windows; on Linux they need `DISPLAY` (a
   desktop session, or `xvfb-run`). No window is shown.
 
-With neither available, expect `Tests run: 248, Failures: 0, Errors: 0, Skipped: 137`. To run the
+With neither available, expect `Tests run: 262, Failures: 0, Errors: 0, Skipped: 146`. To run the
 MySQL tests, point them at the test database:
 
 ```bash
@@ -134,8 +164,8 @@ LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
 mvn test
 ```
 
-Expect `Skipped: 42` if no display is available (the JavaFX tests), and with a display as well,
-`Tests run: 248, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
+Expect `Skipped: 51` if no display is available (the JavaFX tests), and with a display as well,
+`Tests run: 262, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
 `xvfb-run -a mvn test` (with the variables above).
 
 These tests drop and recreate all tables in that database, so they refuse to run unless the
@@ -394,7 +424,7 @@ cp config/database.properties.example config/database.properties   # then set db
 mvn -q compile exec:java         # expect: OK: Connected to MySQL ... schema version 5
 LAMMA_TEST_DB_URL='jdbc:mysql://localhost:3306/lamma_test' \
 LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
-mvn test                         # expect: Tests run: 248, Failures: 0, Errors: 0, Skipped: 0
+mvn test                         # expect: Tests run: 262, Failures: 0, Errors: 0, Skipped: 0
 
 # 4. Run and try it
 mvn javafx:run

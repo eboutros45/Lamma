@@ -1,12 +1,11 @@
 package com.lamma.ui;
 
 import com.lamma.auth.RegistrationService.Registration;
-import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
-import javafx.scene.layout.GridPane;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 
 /** Personal registration form. On success, the user is sent to Sign In. */
@@ -23,7 +22,7 @@ final class PersonalSignUpView extends VBox {
 
     PersonalSignUpView(AppNavigator navigator) {
         this.navigator = navigator;
-        getStyleClass().add("screen");
+        getStyleClass().add("auth-card");
 
         firstNameField.setId("firstNameField");
         lastNameField.setId("lastNameField");
@@ -34,21 +33,21 @@ final class PersonalSignUpView extends VBox {
         confirmPinField.setId("confirmPinField");
         confirmPinField.setPromptText("6 digits");
 
-        GridPane form = new GridPane();
-        form.setHgap(10);
-        form.setVgap(10);
-        form.setAlignment(Pos.CENTER);
-        form.addRow(0, new Label("First name"), firstNameField);
-        form.addRow(1, new Label("Last name"), lastNameField);
-        form.addRow(2, new Label("Phone number"), phoneField);
-        form.addRow(3, new Label("PIN"), pinField);
-        form.addRow(4, new Label("Confirm PIN"), confirmPinField);
+        HBox names = new HBox(12, Screens.field("First name", firstNameField), Screens.field("Last name", lastNameField));
+        HBox pins = new HBox(12, Screens.field("PIN", pinField), Screens.field("Confirm PIN", confirmPinField));
+        for (HBox row : new HBox[] {names, pins}) {
+            row.getChildren().forEach(n -> HBox.setHgrow(n, javafx.scene.layout.Priority.ALWAYS));
+        }
+        VBox form = new VBox(12, names, Screens.field("Phone number", phoneField), pins);
 
         createButton.setOnAction(event -> register());
         Button back = Screens.linkButton("Back to Sign In", "backToSignInButton");
         back.setOnAction(event -> navigator.showSignIn("", ""));
 
-        getChildren().addAll(Screens.appTitle(), Screens.title("Personal Sign Up"), form, message, createButton, back);
+        Screens.wideButton(createButton);
+        getChildren().addAll(Screens.appTitle(), Screens.title("Personal account"),
+                Screens.hint("Your PIN is 6 digits. You'll use your phone number and PIN to sign in."),
+                form, message, createButton, back);
     }
 
     private void register() {

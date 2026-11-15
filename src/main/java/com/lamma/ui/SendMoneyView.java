@@ -119,7 +119,7 @@ final class SendMoneyView extends VBox {
         });
 
         Button cancel = cancelButton();
-        getChildren().setAll(Screens.title("Send Money"),
+        getChildren().setAll(Screens.title("Who are you paying?"),
                 centeredHint("Enter the registered phone number of the LAMMA user you want to pay."),
                 phoneField, find, message, card, cancel);
         Platform.runLater(phoneField::requestFocus);
@@ -134,7 +134,8 @@ final class SendMoneyView extends VBox {
         TextField amountField = new TextField(initialText);
         amountField.setId("amountField");
         amountField.setPromptText("e.g. 25.00");
-        amountField.setMaxWidth(220);
+        amountField.setMaxWidth(260);
+        amountField.getStyleClass().add("amount-field");
         Label message = Screens.message("sendMessage");
 
         long userId = user.userId();
@@ -169,7 +170,7 @@ final class SendMoneyView extends VBox {
         Recipient chosen = recipient;
         back.setOnAction(event -> showRecipientStep(chosen.phoneNumber(), chosen));
 
-        getChildren().setAll(Screens.title("Send Money"), sendingToLabel("sendingToLabel"), balanceLabel,
+        getChildren().setAll(Screens.title("How much?"), sendingToLabel("sendingToLabel"), balanceLabel,
                 centeredHint("Enter the amount to send, in USD (up to " + Money.formatUsd(Amounts.MAX_TOP_UP) + ")."),
                 amountField, message, next, back);
         Platform.runLater(amountField::requestFocus);
@@ -245,9 +246,9 @@ final class SendMoneyView extends VBox {
         Label newBalance = new Label("New balance: " + Money.formatUsd(result.sent().balanceAfter()));
         newBalance.setId("newBalanceLabel");
         newBalance.getStyleClass().add("card-title");
-        Button back = Screens.primaryButton("Back to Dashboard", "backToDashboardButton");
+        Button back = Screens.primaryButton("Done", "backToDashboardButton");
         back.setOnAction(event -> navigator.showDashboard());
-        getChildren().setAll(done, detail, newBalance, back);
+        getChildren().setAll(Screens.successMark(), done, detail, newBalance, back);
     }
 
     // ---- helpers ----

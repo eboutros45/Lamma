@@ -1,0 +1,27 @@
+/* LAMMA dark theme (deep navy): colour tokens only. Layout and components are in lamma.css. */
+.root {
+    -lamma-bg: #0a1020;
+    -lamma-surface: #111a2e;
+    -lamma-surface-2: #18233b;
+    -lamma-border: #223150;
+    -lamma-text: #e7ecf5;
+    -lamma-text-muted: #94a0b8;
+    -lamma-primary: #4c8dff;
+    -lamma-primary-hover: #6a9fff;
+    -lamma-primary-soft: #19305a;
+    -lamma-on-primary: #ffffff;
+    -lamma-hero: #1b3a7a;
+    -lamma-hero-text: #ffffff;
+    -lamma-hero-muted: #b4c4ec;
+    -lamma-success: #3fca8c;
+    -lamma-success-soft: #123326;
+    -lamma-danger: #ff7a7a;
+    -lamma-danger-soft: #3a1820;
+
+    -fx-base: #18233b;
+    -fx-background: #0a1020;
+    -fx-control-inner-background: #111a2e;
+    -fx-accent: #4c8dff;
+    -fx-focus-color: #4c8dff;
+    -fx-faint-focus-color: #4c8dff22;
+}

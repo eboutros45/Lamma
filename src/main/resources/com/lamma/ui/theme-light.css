@@ -1,0 +1,28 @@
+/* LAMMA light theme: colour tokens only. Layout and components are in lamma.css. */
+.root {
+    -lamma-bg: #f3f5f9;
+    -lamma-surface: #ffffff;
+    -lamma-surface-2: #eef1f6;
+    -lamma-border: #e1e6ee;
+    -lamma-text: #0f172a;
+    -lamma-text-muted: #5d6779;
+    -lamma-primary: #2563eb;
+    -lamma-primary-hover: #1d4ed8;
+    -lamma-primary-soft: #e7eefd;
+    -lamma-on-primary: #ffffff;
+    -lamma-hero: #1e3fae;
+    -lamma-hero-text: #ffffff;
+    -lamma-hero-muted: #c9d6ff;
+    -lamma-success: #13804a;
+    -lamma-success-soft: #e3f4ea;
+    -lamma-danger: #c53030;
+    -lamma-danger-soft: #fdecec;
+
+    /* Modena base colours, so built-in controls (scroll bars, text cursors, ...) match. */
+    -fx-base: #eef1f6;
+    -fx-background: #f3f5f9;
+    -fx-control-inner-background: #ffffff;
+    -fx-accent: #2563eb;
+    -fx-focus-color: #2563eb;
+    -fx-faint-focus-color: #2563eb22;
+}

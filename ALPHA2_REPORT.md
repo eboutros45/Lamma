@@ -1,14 +1,150 @@
 # LAMMA Alpha 2 — Implementation Report
 
-**Current phase:** P03, Send Money. **Awaiting product-owner review.** P04 has not been started.
-P02 was reviewed and approved by the product owner.
+**Current work:** initial UI redesign pass (after P03, before P04). **Awaiting user review.**
+P04 has not been started. P02 was approved by the product owner; the user completed a Windows
+acceptance walkthrough of P03 Send Money.
 **Branch:** `alpha2-development`, created from `main` at `b9962d9` (the Alpha 1 baseline, which is
 unchanged).
 **Verification platform:** Linux (Ubuntu 24.04), OpenJDK 21, Maven 3.9, MySQL 8.0.46, JavaFX 21
-on a virtual display. **Nothing has been run on macOS or Windows.**
+on a virtual display. The automated suites and the screenshots in this report were run on Linux
+only. The user ran P03 Send Money on Windows; the redesign has **not** been run on macOS or
+Windows.
 
 All money in LAMMA is simulated. There is no payment processing, card authorisation, gateway,
 bank connection, cashier or administrator.
+
+---
+
+## UI Redesign — initial pass
+
+### Summary
+
+- **Visual system:** a single token-based stylesheet (`lamma.css`) plus two colour-only theme
+  files (`theme-light.css`, `theme-dark.css`).
+  - **Dark:** deep-navy surfaces (#0a1020 background, #111a2e cards).
+  - **Light:** a clean neutral theme.
+  - **Both:** blue primary actions, restrained green for incoming money (debits in the normal text
+    colour), a 4/8/12/16/24 spacing scale, 10/16/20 px radii and one type scale (balances 40 px).
+  - Built-in controls (fields, scroll bars, tooltips, focus) are restyled from the same tokens.
+- **Adaptive navigation** (`AppShell`): Home, Wallets, Cards, Profile.
+  - Sidebar at **≥ 860 px**, bottom bar **below 820 px**, a dead band in between so resizing
+    doesn't flicker. The window minimum is 380×600.
+  - The navigation buttons are moved between the two layouts rather than rebuilt, so **the
+    current screen and its state survive resizing** (tested: a half-typed Send Money recipient
+    stays).
+  - Send Money, Add Money, top-ups, Add Card and wallet details are **actions**: they show a
+    header with **Back**, which returns to where the action started.
+- **Home:** welcome header (avatar, name, sign-out icon); a prominent blue balance card with
+  "Available balance · simulated money"; **Send Money** and **Add Money**; and Recent activity (6
+  newest) with **View all**. Wide windows use two columns, balance and actions on the left and
+  activity on the right. All data is real; nothing is invented.
+- **Wallets:** "Your wallets" lists the personal wallet tile (balance → details). "Shared wallets"
+  is a **plain sentence** saying they'll be listed there in a future release. There are no
+  shared-wallet buttons, balances or screens; only the list structure is ready for them.
+- **Wallet details:** balance, Send/Add actions, and the **transaction history** (up to 100
+  newest), using the same rows as Home.
+- **Cards:** saved cards with a small card graphic, nickname, cardholder, masked number and
+  expiry; Rename/Remove/Add Card behave exactly as before.
+- **Profile:** avatar, name, formatted phone, "Personal account"; **Appearance: System / Light /
+  Dark**; About ("all money is simulated"); Sign Out.
+- **Signed-out screens** (start-up, Sign In, Sign Up choice, Personal Sign Up) use a centred card
+  with the brand mark and labels above the fields.
+- **Flows** (cash and card top-up, card selection and new card, Save Card, Send Money lookup /
+  amount / review): same steps, IDs and logic; restyled through the shared components (large
+  amount fields, option tiles). The "LAMMA" title was removed from inside flows because the
+  header names the action.
+- **Activity rows:** an icon chip per type (cash, card, sent, received), title, counterparty or
+  card plus local time, signed amount and status.
+- **Interaction:**
+  - a 140 ms fade when a screen changes
+  - a check mark that pops in on success screens, which are shown **only after** the database has
+    confirmed
+  - hover states on every button and tile
+  - **focus rings only for keyboard focus** (`:focus-visible`), not after mouse clicks
+  - no animation libraries
+
+### Dependency decisions
+
+- **AtlantaFX 2.0.1** (Java 17) and **Ikonli 12.3.1** (Java 11) were resolved and checked; both
+  are compatible with JavaFX 21.0.5 / Java 17. **Neither was added.**
+  - AtlantaFX replaces Modena with its own theme system, which the LAMMA tokens would partly
+    override, giving two styling systems to maintain.
+  - About 15 icons didn't justify Ikonli's extra jars and icon font. The icons are Material
+    Icons paths (Apache-2.0) drawn as CSS-coloured shapes (`Icons.java`).
+- **System theme:** JavaFX gained `Platform.getPreferences().getColorScheme()` in version 22,
+  which requires JDK 21. To keep JavaFX 21 and Java 17, `SystemTheme` uses that API through
+  reflection when present, and otherwise reads the Windows registry, macOS `defaults` or GNOME
+  `gsettings`. Any failure means light.
+- **Theme persistence:** `java.util.prefs.Preferences` (built into Java), node `com/lamma/app`,
+  key `theme`. No database or schema change.
+- **No financial, validation, schema or service code changed.** The UI-only changes are new
+  screens (Wallets, WalletDetail, Profile), the shell, the theme, `ActivityRows`, and restyled
+  views. The navigator's public behaviour (session guards, stale-result checks via
+  `isShowing`) is unchanged.
+
+### Issues found and fixed during visual review
+
+| Issue (seen in screenshots) | Fix |
+|---|---|
+| Card Top-Up: nested scroll panes hid the saved-card list (and found by tests) | The card list is part of the scrolling page |
+| Home (wide): "Send Mo…" truncated | The activity card takes only the leftover space; the wallet column keeps its width |
+| Focus rings shown after mouse clicks (two highlighted nav items) | `:focus-visible` instead of `:focused` |
+| Compact Wallets tile truncated the **balance** ("$160.…") | Money amounts and the wallet name never shrink |
+| Cards: Add Card pushed to the bottom of the window | The list takes its natural height and scrolls only when long |
+| Duplicate "Add Money" header and title; phone left-aligned in Profile | Removed the duplicate; centred the phone |
+| Apparent right-edge overflow on wide Home | Not a defect: my screenshot script cropped from (0,0) while the window sat 22 px in; measured layout was correct, and the crop was fixed |
+
+### Verification
+
+| Configuration | Run | Passed | Failed | Skipped |
+|---|---|---|---|---|
+| Baseline at `13f4d5c`, before any change (MySQL and display) | 248 | 248 | 0 | 0 |
+| No MySQL settings, no display | 262 | 116 | 0 | 146 |
+| MySQL settings, no display | 262 | 211 | 0 | 51 |
+| **MySQL settings and a display (virtual display)** | **262** | **262** | **0** | **0** |
+
+- **New tests (14):**
+  - `ThemeSettingsTest` (5, no display): default System; saved and re-read after "restart";
+    invalid stored value → System; dark/light per mode and system; Windows/macOS/GNOME parsers.
+  - `AppShellNavigationTest` (9, display): sidebar ↔ bottom bar with the dead band; resizing
+    keeps the same screen instance and typed text; each destination opens its screen and
+    highlights its item; destinations need a session; Back returns to the origin; Home shows 6
+    and "View all" shows the full history; Wallets shows only a text note for shared wallets;
+    Profile shows name and phone; the theme switch restyles live and is saved; Sign Out from
+    Profile.
+- **Existing tests changed (intentional UI moves):**
+  - `CardFlowsTest`: "Payment Methods" is now the **Cards** destination (`#navCards`), so 2 clicks
+    changed.
+  - No other test changed; every control ID used by the tests was kept.
+- **Real flows through the redesigned UI** on the real database (dark theme):
+  - cash $5, saved-card $2 and Send $1.25 to Rami all succeeded
+  - the database changed by exactly +$7.00 in total, with 3 correct records (cash; card 4242; one
+    linked sent/received pair)
+  - the app **relaunched in Dark** (the preference persisted), then was reset to System
+- **Screenshots:** both themes × wide (1040×700) and compact (400×760): sign-in, Home, Wallets,
+  history, Cards, Profile, Add Money, Send review, success. Taken on Linux with a virtual display.
+
+### Known issues and deferred improvements
+
+- **Not verified on macOS or Windows.** Fonts differ by OS (Linux used DejaVu Sans); spacing may
+  shift slightly. The System theme detection paths for Windows and macOS are unit-tested on
+  sample output only.
+- **"System" theme** is read at start-up and when System is chosen; it doesn't follow OS changes
+  while LAMMA runs. JavaFX 22+ would allow live updates, but needs JDK 21.
+- **History** shows up to 100 newest transactions; there's no paging or search.
+- **Long activity details** are shortened with "…" in narrow layouts. Amounts never are.
+- **Baseline accessibility only:** keyboard focus rings, Enter on primary buttons, tooltips on
+  icon buttons. Screen-reader labelling and high-contrast mode were not addressed.
+- **Sign out** is available from Home (icon) and Profile.
+
+### Commit
+
+| Item | Value |
+|---|---|
+| Branch | `alpha2-development` (pushed) |
+| Previous commit | `13f4d5c` (P03) |
+| Redesign commit | the commit that adds this section (hash given in the completion message) |
+| `main` | unchanged at `b9962d9`; nothing merged |
 
 ---
 

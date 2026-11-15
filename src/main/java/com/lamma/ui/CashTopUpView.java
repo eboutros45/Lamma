@@ -42,7 +42,8 @@ final class CashTopUpView extends VBox {
         TextField amountField = new TextField(initialText);
         amountField.setId("amountField");
         amountField.setPromptText("e.g. 25.00");
-        amountField.setMaxWidth(220);
+        amountField.setMaxWidth(260);
+        amountField.getStyleClass().add("amount-field");
         Label message = Screens.message("topUpMessage");
 
         Button next = Screens.primaryButton("Continue", "continueButton");
@@ -58,7 +59,7 @@ final class CashTopUpView extends VBox {
         Button cancel = Screens.linkButton("Cancel", "cancelTopUpButton");
         cancel.setOnAction(event -> navigator.showReceive());
 
-        getChildren().setAll(Screens.appTitle(), Screens.title("Cash Top-Up"),
+        getChildren().setAll(Screens.title("How much cash?"),
                 Screens.hint("Enter the amount of cash to add, in USD (up to "
                         + Money.formatUsd(Amounts.MAX_CASH_TOP_UP) + ")."),
                 amountField, message, next, cancel);
@@ -81,7 +82,7 @@ final class CashTopUpView extends VBox {
         edit.setOnAction(event -> showEnterAmount(reviewedAmount.toPlainString()));
         confirm.setOnAction(event -> confirm(confirm, edit, message));
 
-        getChildren().setAll(Screens.appTitle(), Screens.title("Review your top-up"),
+        getChildren().setAll(Screens.title("Review your top-up"),
                 Screens.hint("Cash top-up to your Personal Wallet"), amountLabel,
                 Screens.hint("This is simulated money. No real payment is made."),
                 message, confirm, edit);
@@ -123,10 +124,10 @@ final class CashTopUpView extends VBox {
         newBalance.setId("newBalanceLabel");
         newBalance.getStyleClass().add("card-title");
 
-        Button back = Screens.primaryButton("Back to Dashboard", "backToDashboardButton");
+        Button back = Screens.primaryButton("Done", "backToDashboardButton");
         back.setOnAction(event -> navigator.showDashboard());
 
-        getChildren().setAll(Screens.appTitle(), done, added, newBalance, back);
+        getChildren().setAll(Screens.successMark(), done, added, newBalance, back);
     }
 
     private boolean stillCurrent() {

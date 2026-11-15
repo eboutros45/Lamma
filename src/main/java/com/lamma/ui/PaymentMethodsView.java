@@ -27,25 +27,26 @@ final class PaymentMethodsView extends VBox {
         this.navigator = navigator;
         this.user = user;
         getStyleClass().addAll("screen", "payment-methods");
+        setStyle("-fx-max-width: 720; -fx-alignment: top-left;"); // destination page, like Wallets
 
         list.setId("cardList");
         ScrollPane scroll = new ScrollPane(list);
         scroll.setFitToWidth(true);
         scroll.getStyleClass().add("activity-scroll");
-        VBox.setVgrow(scroll, Priority.ALWAYS);
+        // No forced growth: the list takes the height it needs (Add Card stays right below it)
+        // and shrinks and scrolls only when there are many cards.
 
         Button add = Screens.primaryButton("Add Card", "addCardButton");
         add.setOnAction(event -> navigator.showAddCard());
-        Button back = Screens.linkButton("Back to Dashboard", "backToDashboardButton");
-        back.setOnAction(event -> navigator.showDashboard());
 
         if (!notice.isEmpty()) {
             Screens.showSuccess(message, notice);
         }
-        getChildren().addAll(Screens.title("Payment Methods"),
+        Screens.withIcon(add, com.lamma.ui.Icons.Icon.ADD);
+        getChildren().addAll(Screens.title("Cards"),
                 Screens.hint("Saved cards are used only for simulated top-ups. LAMMA never stores your full "
                         + "card number or CVV."),
-                message, scroll, add, back);
+                message, scroll, add);
         load();
     }
 
@@ -98,8 +99,8 @@ final class PaymentMethodsView extends VBox {
         row.getChildren().setAll(cardSummary(card), actions);
     }
 
-    /** Nickname prominently, then cardholder and masked details. Also used by card selection. */
-    static VBox cardSummary(SavedCard card) {
+    /** Card graphic, then nickname prominently, cardholder and masked details. Also used by card selection. */
+    static HBox cardSummary(SavedCard card) {
         Label nickname = new Label(card.nickname());
         nickname.setId("cardNickname-" + card.cardId());
         nickname.getStyleClass().add("card-nickname");
@@ -111,7 +112,13 @@ final class PaymentMethodsView extends VBox {
         // at a tiny width and would make the card-choice button hundreds of pixels tall.)
         holder.setWrapText(false);
         details.setWrapText(false);
-        return new VBox(2, nickname, holder, details);
+        Label brandMark = new Label(card.details().brand() == com.lamma.cards.CardBrand.OTHER
+                ? "CARD" : card.details().brand().name());
+        javafx.scene.layout.StackPane face = new javafx.scene.layout.StackPane(brandMark);
+        face.getStyleClass().add("card-face");
+        HBox summary = new HBox(14, face, new VBox(2, nickname, holder, details));
+        summary.setAlignment(Pos.CENTER_LEFT);
+        return summary;
     }
 
     private void showRename(VBox row, SavedCard card) {

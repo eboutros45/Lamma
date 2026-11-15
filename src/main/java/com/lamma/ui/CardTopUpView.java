@@ -15,7 +15,6 @@ import java.util.UUID;
 import javafx.application.Platform;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
-import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -102,10 +101,7 @@ final class CardTopUpView extends VBox {
             });
             choices.getChildren().add(choice);
         }
-        ScrollPane scroll = new ScrollPane(choices);
-        scroll.setFitToWidth(true);
-        scroll.getStyleClass().add("activity-scroll");
-        VBox.setVgrow(scroll, Priority.ALWAYS);
+        choices.setMaxWidth(Double.MAX_VALUE); // the whole page scrolls (AppShell), not just this list
 
         Button useNew = new Button("Use a New Card");
         useNew.setId("useNewCardButton");
@@ -113,7 +109,7 @@ final class CardTopUpView extends VBox {
 
         getChildren().setAll(Screens.title("Choose a Card"),
                 Screens.hint("Select a saved card or use a new one. Payments are simulated; no card is charged."),
-                scroll, useNew, cancelButton());
+                choices, useNew, cancelButton());
     }
 
     private void showNewCardForm() {
@@ -149,7 +145,8 @@ final class CardTopUpView extends VBox {
         TextField amountField = new TextField(initialText);
         amountField.setId("amountField");
         amountField.setPromptText("e.g. 25.00");
-        amountField.setMaxWidth(220);
+        amountField.setMaxWidth(260);
+        amountField.getStyleClass().add("amount-field");
         Label message = Screens.message("topUpMessage");
 
         Button next = Screens.primaryButton("Continue", "continueButton");
@@ -162,7 +159,7 @@ final class CardTopUpView extends VBox {
                 Screens.showError(message, e.getMessage());
             }
         });
-        getChildren().setAll(Screens.title("Credit Card Top-Up"),
+        getChildren().setAll(Screens.title("How much?"),
                 payingWithLabel("payingWithLabel"),
                 Screens.hint("Enter the amount to add, in USD (up to " + Money.formatUsd(Amounts.MAX_TOP_UP) + ")."),
                 amountField, message, next, cancelButton());
@@ -230,10 +227,10 @@ final class CardTopUpView extends VBox {
         Label newBalance = new Label("New balance: " + Money.formatUsd(result.transaction().balanceAfter()));
         newBalance.setId("newBalanceLabel");
         newBalance.getStyleClass().add("card-title");
-        getChildren().setAll(done, added, newBalance);
+        getChildren().setAll(Screens.successMark(), done, added, newBalance);
 
         if (newCard == null) {
-            Button back = Screens.primaryButton("Back to Dashboard", "backToDashboardButton");
+            Button back = Screens.primaryButton("Done", "backToDashboardButton");
             back.setOnAction(event -> navigator.showDashboard());
             getChildren().add(back);
             return;
@@ -300,9 +297,9 @@ final class CardTopUpView extends VBox {
         newCard = null;
         Label done = Screens.title("Card saved");
         done.setId("cardSavedTitle");
-        Button back = Screens.primaryButton("Back to Dashboard", "backToDashboardButton");
+        Button back = Screens.primaryButton("Done", "backToDashboardButton");
         back.setOnAction(event -> navigator.showDashboard());
-        getChildren().setAll(done,
+        getChildren().setAll(Screens.successMark(), done,
                 Screens.hint("“" + saved.nickname() + "” is now in your Payment Methods."), back);
     }
 

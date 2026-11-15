@@ -19,10 +19,10 @@ final class StartupView extends VBox {
 
     StartupView(AppNavigator navigator) {
         this.navigator = navigator;
-        getStyleClass().add("screen");
+        getStyleClass().add("auth-card");
         retry.setId("retryButton");
         retry.setOnAction(event -> connect());
-        getChildren().addAll(Screens.appTitle(), Screens.hint("Simulated digital wallet — Alpha 1"), status, retry);
+        getChildren().addAll(Screens.appTitle(), Screens.hint("Simulated digital wallet"), status, retry);
         connect();
     }
 

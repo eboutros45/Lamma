@@ -1,186 +1,492 @@
-/* Shared look for all LAMMA screens. */
+/*
+ * LAMMA design system: layout and components for every screen.
+ * Colours are tokens (-lamma-*) defined by theme-light.css or theme-dark.css,
+ * one of which is always loaded after this file (see ThemeSettings).
+ *
+ * Scale: spacing 4/8/12/16/24/32, radius 10 (controls) / 16 (cards) / 20 (hero),
+ * type 12 caption / 14 body / 16 section / 22 title / 40 balance.
+ */
+
+/* ---------- Base ---------- */
 .root {
     -fx-font-size: 14px;
-    -fx-background-color: #f4f5f7;
+    -fx-background-color: -lamma-bg;
 }
-.screen {
-    -fx-padding: 32;
-    -fx-spacing: 14;
-    -fx-alignment: center;
+.label {
+    -fx-text-fill: -lamma-text;
 }
-.app-title {
-    -fx-font-size: 32px;
-    -fx-font-weight: bold;
+.hint, .caption {
+    -fx-text-fill: -lamma-text-muted;
 }
-.screen-title {
-    -fx-font-size: 20px;
-    -fx-font-weight: bold;
+.caption {
+    -fx-font-size: 12px;
 }
-.hint {
-    -fx-text-fill: #555555;
-}
-.message-error {
-    -fx-text-fill: #b00020;
-}
-.message-success {
-    -fx-text-fill: #1b7f3b;
-}
-.primary-button {
-    -fx-background-color: #1f5fbf;
-    -fx-text-fill: white;
-    -fx-font-weight: bold;
-}
-.link-button {
-    -fx-background-color: transparent;
-    -fx-text-fill: #1f5fbf;
-    -fx-underline: true;
-    -fx-cursor: hand;
-}
-.choice-button {
-    -fx-pref-width: 220;
-    -fx-pref-height: 70;
-    -fx-font-size: 16px;
+.icon {
+    -fx-background-color: -lamma-text-muted;
 }
 
-/* ---- Personal wallet dashboard (P03) ---- */
-.top-bar {
-    -fx-padding: 14 20;
-    -fx-background-color: white;
-    -fx-border-color: transparent transparent #e1e4e8 transparent;
-}
-.brand {
+/* ---------- Typography ---------- */
+.app-title {
     -fx-font-size: 22px;
     -fx-font-weight: bold;
-    -fx-text-fill: #1f5fbf;
+    -fx-text-fill: -lamma-text;
 }
-.user-name {
+.screen-title {
+    -fx-font-size: 22px;
     -fx-font-weight: bold;
 }
-.dashboard-content {
-    -fx-padding: 24;
-}
-.card {
-    -fx-background-color: white;
-    -fx-background-radius: 12;
-    -fx-padding: 22;
-    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.08), 10, 0, 0, 2);
+.section-title {
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
 }
 .card-title {
-    -fx-font-size: 16px;
+    -fx-font-size: 15px;
     -fx-font-weight: bold;
 }
 .balance {
     -fx-font-size: 40px;
     -fx-font-weight: bold;
 }
-.section-title {
-    -fx-font-size: 15px;
+.user-name {
+    -fx-font-size: 18px;
     -fx-font-weight: bold;
-    -fx-text-fill: #555555;
 }
-.preview-tile {
-    -fx-background-color: #eceef1;
+
+/* ---------- Messages ---------- */
+.message-error {
+    -fx-text-fill: -lamma-danger;
+}
+.message-success {
+    -fx-text-fill: -lamma-success;
+}
+
+/* ---------- Inputs ---------- */
+.text-field, .password-field {
+    -fx-background-color: -lamma-border, -lamma-surface;
+    -fx-background-insets: 0, 1;
+    -fx-background-radius: 10, 9;
+    -fx-padding: 9 12;
+    -fx-text-fill: -lamma-text;
+    -fx-prompt-text-fill: -lamma-text-muted;
+    -fx-highlight-fill: -lamma-primary;
+    -fx-highlight-text-fill: -lamma-on-primary;
+}
+.text-field:focused, .password-field:focused {
+    -fx-background-color: -lamma-primary, -lamma-surface;
+    -fx-background-insets: 0, 2;
+}
+.text-field:disabled, .password-field:disabled {
+    -fx-opacity: 0.6;
+}
+.amount-field {
+    -fx-font-size: 22px;
+    -fx-font-weight: bold;
+    -fx-alignment: center;
+}
+
+/* ---------- Buttons ---------- */
+.button, .toggle-button {
+    -fx-background-color: -lamma-surface-2;
     -fx-background-radius: 10;
-    -fx-padding: 14;
-    -fx-opacity: 0.85;
+    -fx-background-insets: 0;
+    -fx-text-fill: -lamma-text;
+    -fx-padding: 9 16;
+    -fx-cursor: hand;
+    -fx-focus-traversable: true;
 }
-.preview-title {
+.button:hover, .toggle-button:hover {
+    -fx-background-color: -lamma-border;
+}
+.button:focus-visible, .toggle-button:focus-visible {
+    -fx-background-color: -lamma-primary, -lamma-surface-2;
+    -fx-background-insets: 0, 2;
+}
+.icon-button:focus-visible {
+    -fx-background-color: -lamma-primary-soft;
+}
+.button:disabled {
+    -fx-opacity: 0.45;
+}
+.primary-button, .action-button {
+    -fx-background-color: -lamma-primary;
+    -fx-text-fill: -lamma-on-primary;
     -fx-font-weight: bold;
-    -fx-text-fill: #555555;
+    -fx-padding: 11 16;
+}
+.primary-button:hover, .action-button:hover {
+    -fx-background-color: -lamma-primary-hover;
+}
+.primary-button:focus-visible, .action-button:focus-visible {
+    -fx-background-color: -lamma-text, -lamma-primary;
+    -fx-background-insets: 0, 2;
+}
+.primary-button .icon, .action-button .icon {
+    -fx-background-color: -lamma-on-primary;
+}
+.secondary-action-button {
+    -fx-background-color: -lamma-primary-soft;
+    -fx-text-fill: -lamma-primary;
+    -fx-font-weight: bold;
+    -fx-padding: 11 16;
+}
+.secondary-action-button:hover {
+    -fx-background-color: -lamma-border;
+}
+.secondary-action-button .icon {
+    -fx-background-color: -lamma-primary;
+}
+.link-button {
+    -fx-background-color: transparent;
+    -fx-text-fill: -lamma-primary;
+    -fx-padding: 6 8;
+}
+.link-button:hover {
+    -fx-background-color: transparent;
+    -fx-underline: true;
+}
+.link-button:focus-visible {
+    -fx-background-color: -lamma-primary-soft;
+}
+.danger-button {
+    -fx-background-color: -lamma-danger;
+    -fx-text-fill: -lamma-on-primary;
+    -fx-font-weight: bold;
+}
+.danger-button:hover {
+    -fx-background-color: -lamma-danger;
+    -fx-opacity: 0.9;
+}
+.outline-danger-button {
+    -fx-background-color: -lamma-danger-soft;
+    -fx-text-fill: -lamma-danger;
+    -fx-font-weight: bold;
+}
+.outline-danger-button .icon {
+    -fx-background-color: -lamma-danger;
+}
+.icon-button {
+    -fx-background-color: transparent;
+    -fx-background-radius: 20;
+    -fx-padding: 8;
+}
+.icon-button:hover {
+    -fx-background-color: -lamma-surface-2;
+}
+
+/* ---------- Surfaces ---------- */
+.card, .card-row {
+    -fx-background-color: -lamma-surface;
+    -fx-background-radius: 16;
+    -fx-border-color: -lamma-border;
+    -fx-border-radius: 16;
+    -fx-padding: 16 18;
+}
+.hero-card {
+    -fx-background-color: -lamma-hero;
+    -fx-background-radius: 20;
+    -fx-padding: 22 24;
+}
+.hero-card .label {
+    -fx-text-fill: -lamma-hero-text;
+}
+.hero-card .hint, .hero-card .caption {
+    -fx-text-fill: -lamma-hero-muted;
+}
+.icon-chip {
+    -fx-background-color: -lamma-primary-soft;
+    -fx-background-radius: 20;
+    -fx-min-width: 40;
+    -fx-min-height: 40;
+    -fx-max-width: 40;
+    -fx-max-height: 40;
+    -fx-alignment: center;
+}
+.icon-chip .icon {
+    -fx-background-color: -lamma-primary;
+}
+.icon-chip.credit {
+    -fx-background-color: -lamma-success-soft;
+}
+.icon-chip.credit .icon {
+    -fx-background-color: -lamma-success;
+}
+.avatar {
+    -fx-background-color: -lamma-primary-soft;
+    -fx-background-radius: 24;
+    -fx-min-width: 44;
+    -fx-min-height: 44;
+    -fx-max-width: 44;
+    -fx-max-height: 44;
+    -fx-alignment: center;
+}
+.avatar .label {
+    -fx-text-fill: -lamma-primary;
+    -fx-font-weight: bold;
+    -fx-font-size: 16px;
+}
+.avatar.large {
+    -fx-background-radius: 36;
+    -fx-min-width: 72;
+    -fx-min-height: 72;
+    -fx-max-width: 72;
+    -fx-max-height: 72;
+}
+.avatar.large .label {
+    -fx-font-size: 26px;
 }
 .badge {
-    -fx-background-color: #d9dde3;
+    -fx-background-color: -lamma-surface-2;
     -fx-background-radius: 8;
     -fx-padding: 2 8;
     -fx-font-size: 11px;
-    -fx-text-fill: #444444;
+    -fx-text-fill: -lamma-text-muted;
+}
+.badge.on-hero {
+    -fx-background-color: rgba(255, 255, 255, 0.16);
+    -fx-text-fill: -lamma-hero-text;
+}
+.success-badge .icon {
+    -fx-background-color: -lamma-success;
+}
+.separator .line {
+    -fx-border-color: -lamma-border;
+    -fx-border-width: 1 0 0 0;
 }
 
-/* ---- Receive Money, cash top-up and recent activity (Alpha 2 P01) ---- */
-.action-button {
-    -fx-background-color: #1f5fbf;
-    -fx-text-fill: white;
-    -fx-font-weight: bold;
-    -fx-font-size: 14px;
-    -fx-pref-height: 44;
-    -fx-background-radius: 10;
-    -fx-cursor: hand;
+/* ---------- Screens ---------- */
+/* A single-column screen (forms and flows). Centred, readable width. */
+.screen {
+    -fx-padding: 24;
+    -fx-spacing: 14;
+    -fx-alignment: top-center;
+    -fx-max-width: 560;
 }
-.choice-unavailable {
-    -fx-pref-width: 220;
-    -fx-pref-height: 70;
-    -fx-font-size: 15px;
+.auth-frame {
+    -fx-background-color: -lamma-bg;
+}
+.auth-card {
+    -fx-background-color: -lamma-surface;
+    -fx-background-radius: 20;
+    -fx-border-color: -lamma-border;
+    -fx-border-radius: 20;
+    -fx-padding: 32 32 24 32;
+    -fx-spacing: 14;
+    -fx-alignment: top-center;
+    -fx-max-width: 440;
+}
+.brand-mark {
+    -fx-background-color: -lamma-primary;
+    -fx-background-radius: 12;
+    -fx-min-width: 40;
+    -fx-min-height: 40;
+    -fx-max-width: 40;
+    -fx-max-height: 40;
     -fx-alignment: center;
-    -fx-text-alignment: center;
-    -fx-text-fill: #777777;
-    -fx-background-color: #eceef1;
-    -fx-background-radius: 4;
-    -fx-border-color: #d9dde3;
-    -fx-border-radius: 4;
 }
-.activity-scroll, .activity-scroll:focused {
+.brand-mark .label {
+    -fx-text-fill: -lamma-on-primary;
+    -fx-font-weight: bold;
+    -fx-font-size: 20px;
+}
+.brand-name {
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+}
+.form-label {
+    -fx-text-fill: -lamma-text-muted;
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+}
+
+/* ---------- App shell: sidebar (wide) and bottom bar (compact) ---------- */
+.sidebar {
+    -fx-background-color: -lamma-surface;
+    -fx-border-color: transparent -lamma-border transparent transparent;
+    -fx-padding: 20 12;
+    -fx-spacing: 6;
+    -fx-pref-width: 220;
+    -fx-min-width: 220;
+}
+.bottom-nav {
+    -fx-background-color: -lamma-surface;
+    -fx-border-color: -lamma-border transparent transparent transparent;
+    -fx-padding: 6 8;
+    -fx-alignment: center;
+}
+.nav-item {
+    -fx-background-color: transparent;
+    -fx-text-fill: -lamma-text-muted;
+    -fx-background-radius: 10;
+    -fx-padding: 10 14;
+    -fx-graphic-text-gap: 12;
+    -fx-alignment: center-left;
+}
+.bottom-nav .nav-item {
+    -fx-padding: 6 4;
+    -fx-graphic-text-gap: 3;
+    -fx-font-size: 11px;
+    -fx-alignment: center;
+}
+.nav-item:hover {
+    -fx-background-color: -lamma-surface-2;
+}
+.nav-item:selected {
+    -fx-background-color: -lamma-primary-soft;
+    -fx-text-fill: -lamma-primary;
+    -fx-font-weight: bold;
+}
+.nav-item:selected .icon {
+    -fx-background-color: -lamma-primary;
+}
+.nav-item:focus-visible {
+    -fx-background-color: -lamma-primary, -lamma-surface-2;
+    -fx-background-insets: 0, 2;
+}
+.flow-header {
+    -fx-padding: 12 16 0 12;
+    -fx-spacing: 6;
+    -fx-alignment: center-left;
+}
+.flow-header .label {
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+}
+
+/* ---------- Dashboard and lists ---------- */
+.dashboard-content {
+    -fx-padding: 24;
+    -fx-spacing: 18;
+}
+.activity-scroll, .activity-scroll:focused, .activity-scroll > .viewport {
     -fx-background-color: transparent;
     -fx-background: transparent;
     -fx-background-insets: 0;
     -fx-padding: 0;
 }
 .activity-row {
-    -fx-background-color: white;
-    -fx-background-radius: 8;
-    -fx-padding: 8 12;
+    -fx-padding: 10 4;
+    -fx-spacing: 12;
+    -fx-alignment: center-left;
+    -fx-border-color: transparent transparent -lamma-border transparent;
 }
 .activity-type {
     -fx-font-weight: bold;
-    /* Explicit colour: inside the transparent ScrollPane the theme's computed text colour is unreadable. */
-    -fx-text-fill: #1f2328;
+    -fx-text-fill: -lamma-text;
 }
 .amount-credit {
-    -fx-text-fill: #1b7f3b;
+    -fx-text-fill: -lamma-success;
     -fx-font-weight: bold;
 }
 .amount-debit {
-    -fx-text-fill: #b00020;
+    -fx-text-fill: -lamma-text;
     -fx-font-weight: bold;
 }
-
-/* ---- Payment Methods and card top-ups (Alpha 2 P02) ---- */
-.secondary-action-button {
-    -fx-background-color: white;
-    -fx-text-fill: #1f5fbf;
-    -fx-border-color: #1f5fbf;
-    -fx-border-radius: 10;
-    -fx-background-radius: 10;
-    -fx-font-weight: bold;
-    -fx-font-size: 14px;
-    -fx-pref-height: 44;
+.wallet-tile {
+    -fx-background-color: -lamma-surface;
+    -fx-background-radius: 16;
+    -fx-border-color: -lamma-border;
+    -fx-border-radius: 16;
+    -fx-padding: 16 18;
     -fx-cursor: hand;
 }
-.payment-methods {
-    -fx-alignment: top-center;
+.wallet-tile:hover, .wallet-tile:focus-visible {
+    -fx-border-color: -lamma-primary;
 }
-.card-row {
-    -fx-background-color: white;
-    -fx-background-radius: 8;
-    -fx-padding: 10 12;
+
+/* ---------- Choice tiles (Add Money options, sign-up type, saved cards) ---------- */
+.choice-button, .option-tile, .card-choice {
+    -fx-background-color: -lamma-surface;
+    -fx-background-radius: 16;
+    -fx-border-color: -lamma-border;
+    -fx-border-radius: 16;
+    -fx-padding: 14 16;
+    -fx-alignment: center-left;
+    -fx-cursor: hand;
+}
+.choice-button:hover, .option-tile:hover, .card-choice:hover,
+.choice-button:focus-visible, .option-tile:focus-visible, .card-choice:focus-visible {
+    -fx-background-color: -lamma-surface;
+    -fx-border-color: -lamma-primary;
+    -fx-background-insets: 0;
+}
+.choice-button:disabled, .card-choice:disabled {
+    -fx-opacity: 0.55;
+}
+.choice-unavailable {
+    -fx-background-color: -lamma-surface-2;
+    -fx-background-radius: 16;
+    -fx-padding: 14 16;
+    -fx-text-fill: -lamma-text-muted;
 }
 .card-nickname {
     -fx-font-weight: bold;
     -fx-font-size: 15px;
-    /* Explicit colour: inside the transparent ScrollPane the theme's computed text colour is unreadable. */
-    -fx-text-fill: #1f2328;
+    -fx-text-fill: -lamma-text;
 }
-.card-choice {
-    -fx-background-color: white;
+.card-face {
+    -fx-background-color: -lamma-hero;
     -fx-background-radius: 8;
-    -fx-border-color: #d9dde3;
-    -fx-border-radius: 8;
-    -fx-padding: 8 12;
-    -fx-cursor: hand;
+    -fx-min-width: 52;
+    -fx-min-height: 34;
+    -fx-max-width: 52;
+    -fx-max-height: 34;
+    -fx-alignment: center;
 }
-.card-choice:hover, .card-choice:focused {
-    -fx-border-color: #1f5fbf;
+.card-face .label {
+    -fx-text-fill: -lamma-hero-text;
+    -fx-font-size: 10px;
+    -fx-font-weight: bold;
 }
-.danger-button {
-    -fx-background-color: #b00020;
-    -fx-text-fill: white;
+
+/* ---------- Segmented control (theme choice) ---------- */
+.segmented {
+    -fx-background-color: -lamma-surface-2;
+    -fx-background-radius: 12;
+    -fx-padding: 4;
+    -fx-spacing: 4;
+}
+.segmented .toggle-button {
+    -fx-background-color: transparent;
+    -fx-text-fill: -lamma-text-muted;
+    -fx-padding: 7 14;
+}
+.segmented .toggle-button:selected {
+    -fx-background-color: -lamma-surface;
+    -fx-text-fill: -lamma-text;
+    -fx-font-weight: bold;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.12), 4, 0, 0, 1);
+}
+.segmented .toggle-button:focus-visible {
+    -fx-background-color: -lamma-primary, -lamma-surface;
+    -fx-background-insets: 0, 2;
+}
+
+/* ---------- Scroll bars (slim, theme coloured) ---------- */
+.scroll-bar {
+    -fx-background-color: transparent;
+}
+.scroll-bar .thumb {
+    -fx-background-color: -lamma-border;
+    -fx-background-radius: 6;
+}
+.scroll-bar .increment-button, .scroll-bar .decrement-button {
+    -fx-padding: 0;
+    -fx-background-color: transparent;
+}
+.scroll-bar .increment-arrow, .scroll-bar .decrement-arrow {
+    -fx-shape: " ";
+    -fx-padding: 0;
+}
+.scroll-pane, .scroll-pane > .viewport {
+    -fx-background-color: transparent;
+}
+.scroll-pane:focused {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+}
+.tooltip {
+    -fx-background-color: -lamma-text;
+    -fx-text-fill: -lamma-bg;
+    -fx-background-radius: 6;
+    -fx-font-size: 12px;
 }
