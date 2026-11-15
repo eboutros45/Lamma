@@ -1,0 +1,11 @@
+# Build output
+target/
+
+# Local database credentials (copy config/database.properties.example)
+config/database.properties
+
+# IDE / OS files
+.idea/
+*.iml
+.vscode/
+.DS_Store

@@ -1,0 +1,10 @@
+# LAMMA local database settings.
+# Copy this file to config/database.properties and fill in your own values.
+# config/database.properties is git-ignored, so your password is never committed.
+#
+# Environment variables LAMMA_DB_URL, LAMMA_DB_USER and LAMMA_DB_PASSWORD
+# override the values below if they are set.
+
+db.url=jdbc:mysql://localhost:3306/lamma?connectTimeout=5000&socketTimeout=10000
+db.user=lamma_app
+db.password=change-me
