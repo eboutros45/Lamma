@@ -41,3 +41,57 @@
     -fx-pref-height: 70;
     -fx-font-size: 16px;
 }
+
+/* ---- Personal wallet dashboard (P03) ---- */
+.top-bar {
+    -fx-padding: 14 20;
+    -fx-background-color: white;
+    -fx-border-color: transparent transparent #e1e4e8 transparent;
+}
+.brand {
+    -fx-font-size: 22px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #1f5fbf;
+}
+.user-name {
+    -fx-font-weight: bold;
+}
+.dashboard-content {
+    -fx-padding: 24;
+}
+.card {
+    -fx-background-color: white;
+    -fx-background-radius: 12;
+    -fx-padding: 22;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.08), 10, 0, 0, 2);
+}
+.card-title {
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+}
+.balance {
+    -fx-font-size: 40px;
+    -fx-font-weight: bold;
+}
+.section-title {
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #555555;
+}
+.preview-tile {
+    -fx-background-color: #eceef1;
+    -fx-background-radius: 10;
+    -fx-padding: 14;
+    -fx-opacity: 0.85;
+}
+.preview-title {
+    -fx-font-weight: bold;
+    -fx-text-fill: #555555;
+}
+.badge {
+    -fx-background-color: #d9dde3;
+    -fx-background-radius: 8;
+    -fx-padding: 2 8;
+    -fx-font-size: 11px;
+    -fx-text-fill: #444444;
+}

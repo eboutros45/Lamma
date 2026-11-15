@@ -2,9 +2,10 @@
 
 Simulated digital wallet — local JavaFX desktop application backed by MySQL (via JDBC).
 
-**Current state: Alpha 1 / P02 (registration and sign-in).** You can register a personal account,
-sign in, and sign out. Business sign-up shows "Coming Soon" only. After sign-in the app shows a
-placeholder screen; the wallet dashboard comes in P03.
+**Current state: Alpha 1 / P03 (personal wallet dashboard).** You can register a personal account,
+sign in, see your personal wallet balance (read from MySQL), and sign out. Business sign-up shows
+"Coming Soon" only. Send Money, Receive Money and Recent Activity are shown on the dashboard as
+non-clickable "Coming Soon" previews.
 
 > This is a prototype for **simulated money**. The six-digit PIN, PBKDF2 hashing and sign-in lockout
 > are reasonable for that purpose. They are **not** production-grade financial security.
@@ -64,7 +65,10 @@ the **Sign In** screen:
   Soon" and creates nothing).
 - **Personal Sign Up**: first name, last name, phone number, PIN and Confirm PIN. When it
   succeeds, you return to Sign In with the phone number filled in.
-- **Signed in**: a welcome placeholder with **Sign Out**.
+- **Dashboard**: shows LAMMA branding, your name, **Personal Wallet** and your balance in USD
+  (e.g. `$0.00`), plus a **Sign Out** button. The balance loads in the background. If it can't be
+  loaded, a friendly message and a **Retry** button appear. The Send Money, Receive Money and
+  Recent Activity tiles are read-only "Coming Soon" previews.
 
 ## Run the tests
 
@@ -72,9 +76,16 @@ the **Sign In** screen:
 mvn test
 ```
 
-Without extra settings, the 23 MySQL integration tests are **skipped** (Maven reports them as
-`Skipped`, not passed). Expect `Tests run: 80, Failures: 0, Errors: 0, Skipped: 23`. To run them,
-point them at the test database:
+Two groups of tests are **skipped** unless their environment is available. Maven reports them as
+`Skipped`, not passed:
+
+- **29 MySQL integration tests** run only when `LAMMA_TEST_DB_*` is set (see below).
+- **7 JavaFX navigation tests** (`DashboardNavigationTest`) need a graphical display. They always
+  run on macOS and Windows; on Linux they need `DISPLAY` (a desktop session, or `xvfb-run`). No
+  window is shown.
+
+With neither available, expect `Tests run: 96, Failures: 0, Errors: 0, Skipped: 36`. To run the
+MySQL tests, point them at the test database:
 
 ```bash
 LAMMA_TEST_DB_URL='jdbc:mysql://localhost:3306/lamma_test' \
@@ -82,7 +93,9 @@ LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
 mvn test
 ```
 
-Expect `Tests run: 80, Failures: 0, Errors: 0, Skipped: 0`.
+Expect `Skipped: 7` if no display is available (the JavaFX tests), and with a display as well,
+`Tests run: 96, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
+`xvfb-run -a mvn test` (with the variables above).
 
 These tests drop and recreate all tables in that database, so they refuse to run unless the
 database name ends in `_test`.
@@ -91,11 +104,12 @@ database name ends in `_test`.
 
 ```
 JavaFX screens (com.lamma.ui)         StartupView -> SignInView <-> SignUpChoiceView -> PersonalSignUpView
-   │  AppNavigator switches screens        └─> SignedInView (only with an active UserSession)
+   │  AppNavigator switches screens        └─> DashboardView (only with an active UserSession)
    │  BackgroundWork runs DB calls off the UI thread
    ▼
 Services (com.lamma.auth)             RegistrationService, AuthenticationService, UserSession
    │  PhoneNumbers (normalization), Pins (format), PinHasher (PBKDF2)
+   │      (com.lamma.wallet)          WalletService (reads the PERSONAL wallet), Money (USD format)
    ▼
 JDBC (com.lamma.db)                   Database, DatabaseConfig, SchemaMigrator, DatabaseStatus
    ▼
@@ -105,6 +119,7 @@ MySQL                                 users, wallets, schema_version
 - `src/main/java/com/lamma/LammaApp.java`: the JavaFX entry point.
 - `src/main/java/com/lamma/ui/`: the screens, plus `src/main/resources/com/lamma/ui/lamma.css`.
 - `src/main/java/com/lamma/auth/`: registration, sign-in, session, phone and PIN rules.
+- `src/main/java/com/lamma/wallet/`: wallet data access for the dashboard.
 - `src/main/java/com/lamma/db/`: the database code (config, connection, migrations, CLI check).
 - `src/main/resources/db/migration/`: versioned schema scripts.
 - `database/create_database.sql`: one-time admin setup (database and user).
@@ -190,6 +205,22 @@ Lebanese numbers must have 7 or 8 digits after the `0`/`961`. Any other bare dig
   it. **Sign Out** clears it and returns to Sign In.
 - All SQL uses `PreparedStatement` parameters.
 
+## Dashboard data and account isolation
+
+- The dashboard runs one parameterized query:
+  `SELECT wallet_id, owner_user_id, balance FROM wallets WHERE owner_user_id = ? AND wallet_type = 'PERSONAL'`.
+  The `?` is the **signed-in user's id from the session**. No wallet id ever comes from the screen,
+  so one user can't request another user's wallet.
+- If the wallet is missing, the screen says so. If the data is inconsistent (more than one PERSONAL
+  wallet, or a negative or missing balance), the screen says so too. If the database fails, the
+  user sees a friendly message without SQL or connection details and can press **Retry**. The
+  technical cause goes to the console only.
+- **Account switching**: each sign-in builds a new dashboard screen. A slow wallet load that
+  finishes after Sign Out, or after another user signs in, is discarded: results are applied only
+  if the same sign-in is still active (`UserSession.isCurrent`) and the screen is still showing.
+- **Restart**: the session is in memory only, so a restarted app always starts at Sign In. Accounts
+  and wallets are stored in MySQL and are still there.
+
 ## macOS
 
 The project is pure Java. Maven downloads the right JavaFX build for macOS automatically, on both
@@ -210,7 +241,7 @@ cp config/database.properties.example config/database.properties   # then set db
 mvn -q compile exec:java         # expect: OK: Connected to MySQL ... schema version 2
 LAMMA_TEST_DB_URL='jdbc:mysql://localhost:3306/lamma_test' \
 LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
-mvn test                         # expect: Tests run: 80, Failures: 0, Errors: 0, Skipped: 0
+mvn test                         # expect: Tests run: 96, Failures: 0, Errors: 0, Skipped: 0
 
 # 4. Run and try it
 mvn javafx:run
@@ -221,7 +252,8 @@ Manual check in the app:
 1. Sign Up → Business shows "Coming Soon".
 2. Personal: register with `03 123 456`. When you're returned to Sign In, sign in with
    `+961 3 123 456`.
-3. Sign Out.
+3. Check that the dashboard shows your name, Personal Wallet and `$0.00`, then Sign Out.
+   Register a second account, sign in with it, and check that it shows its own name.
 4. A wrong PIN 5 times → even the correct PIN is refused for 5 minutes.
 5. `brew services stop mysql` → restart the app: it shows an error and a **Try again** button,
    and does not crash.

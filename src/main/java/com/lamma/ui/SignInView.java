@@ -53,10 +53,7 @@ final class SignInView extends VBox {
         signInButton.setDisable(true);
         message.setText("Signing in…");
         BackgroundWork.run(() -> navigator.authenticationService().signIn(phone, pin),
-                (AuthenticatedUser user) -> {
-                    navigator.session().signIn(user);
-                    navigator.showSignedIn();
-                },
+                (AuthenticatedUser user) -> navigator.signedIn(user),
                 error -> {
                     Screens.showError(message, error);
                     signInButton.setDisable(false);

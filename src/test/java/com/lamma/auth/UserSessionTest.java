@@ -26,4 +26,28 @@ class UserSessionTest {
         assertFalse(session.isSignedIn());
         assertTrue(session.currentUser().isEmpty());
     }
+
+    @Test
+    void isCurrentOnlyForTheActiveSignIn() {
+        UserSession session = new UserSession();
+        AuthenticatedUser first = new AuthenticatedUser(1, "Lina", "Haddad", "9613123456");
+        AuthenticatedUser other = new AuthenticatedUser(2, "Rami", "Khoury", "96170123456");
+        AuthenticatedUser firstAgain = new AuthenticatedUser(1, "Lina", "Haddad", "9613123456");
+
+        assertFalse(session.isCurrent(first));
+        session.signIn(first);
+        assertTrue(session.isCurrent(first));
+        assertFalse(session.isCurrent(null));
+
+        session.signOut();
+        assertFalse(session.isCurrent(first), "stale after sign out");
+
+        session.signIn(other);
+        assertFalse(session.isCurrent(first), "stale after switching account");
+
+        session.signOut();
+        session.signIn(firstAgain);
+        assertFalse(session.isCurrent(first), "an earlier sign-in of the same person is also stale");
+        assertTrue(session.isCurrent(firstAgain));
+    }
 }

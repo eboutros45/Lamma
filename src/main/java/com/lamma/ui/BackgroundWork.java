@@ -45,6 +45,6 @@ final class BackgroundWork {
         if (error != null) {
             error.printStackTrace();
         }
-        return "Something went wrong. Please try again. (" + error + ")";
+        return "Something went wrong. Please try again.";
     }
 }

@@ -1,12 +1,15 @@
 package com.lamma.ui;
 
+import com.lamma.auth.AuthenticatedUser;
 import com.lamma.auth.AuthenticationService;
 import com.lamma.auth.PinHasher;
 import com.lamma.auth.RegistrationService;
 import com.lamma.auth.UserSession;
 import com.lamma.db.Database;
+import com.lamma.wallet.WalletService;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
+import javafx.scene.layout.StackPane;
 import javafx.stage.Stage;
 
 /**
@@ -19,12 +22,30 @@ public final class AppNavigator {
     private final UserSession session = new UserSession();
     private RegistrationService registrationService;
     private AuthenticationService authenticationService;
+    private WalletService walletService;
 
+    /** Normal start-up: shows the startup screen, which connects to the database. */
     public AppNavigator(Stage stage) {
-        this.scene = new Scene(new StartupView(this), 600, 600);
+        this.scene = createScene(stage);
+        show(new StartupView(this));
+    }
+
+    /** For automated UI tests: services are supplied directly and no database check runs. */
+    AppNavigator(Stage stage, RegistrationService registration, AuthenticationService authentication,
+                 WalletService wallets) {
+        this.scene = createScene(stage);
+        this.registrationService = registration;
+        this.authenticationService = authentication;
+        this.walletService = wallets;
+        showSignIn("", "");
+    }
+
+    private static Scene createScene(Stage stage) {
+        Scene scene = new Scene(new StackPane(), 600, 600);
         scene.getStylesheets().add(AppNavigator.class.getResource("lamma.css").toExternalForm());
         stage.setTitle("LAMMA");
         stage.setScene(scene);
+        return scene;
     }
 
     /** Called by the startup screen once the database is reachable and up to date. */
@@ -32,6 +53,7 @@ public final class AppNavigator {
         PinHasher pinHasher = new PinHasher();
         this.registrationService = new RegistrationService(database, pinHasher);
         this.authenticationService = new AuthenticationService(database, pinHasher);
+        this.walletService = new WalletService(database);
         showSignIn("", "");
     }
 
@@ -47,18 +69,33 @@ public final class AppNavigator {
         show(new PersonalSignUpView(this));
     }
 
+    /** Starts a session for the user who just authenticated and opens their dashboard. */
+    void signedIn(AuthenticatedUser user) {
+        session.signIn(user);
+        showDashboard();
+    }
+
     /** Only reachable with an active session; otherwise falls back to Sign In. */
-    void showSignedIn() {
+    void showDashboard() {
         if (!session.isSignedIn()) {
             showSignIn("", "");
             return;
         }
-        show(new SignedInView(this, session.currentUser().orElseThrow()));
+        show(new DashboardView(this, session.currentUser().orElseThrow()));
     }
 
     void signOut() {
         session.signOut();
         showSignIn("", "You have signed out.");
+    }
+
+    /** True if {@code screen} is the screen currently in the window. */
+    boolean isShowing(Parent screen) {
+        return scene.getRoot() == screen;
+    }
+
+    Parent currentScreen() {
+        return scene.getRoot();
     }
 
     UserSession session() {
@@ -71,6 +108,10 @@ public final class AppNavigator {
 
     AuthenticationService authenticationService() {
         return authenticationService;
+    }
+
+    WalletService walletService() {
+        return walletService;
     }
 
     private void show(Parent screen) {

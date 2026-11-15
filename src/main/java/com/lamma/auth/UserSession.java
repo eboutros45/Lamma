@@ -22,6 +22,15 @@ public final class UserSession {
         return currentUser != null;
     }
 
+    /**
+     * True only if {@code user} is the exact sign-in that is active now. Every sign-in creates
+     * a new {@link AuthenticatedUser} object, so a result loaded for an earlier sign-in (even of
+     * the same person) is recognised as stale after Sign Out or an account switch.
+     */
+    public boolean isCurrent(AuthenticatedUser user) {
+        return user != null && currentUser == user;
+    }
+
     public Optional<AuthenticatedUser> currentUser() {
         return Optional.ofNullable(currentUser);
     }
