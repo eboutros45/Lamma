@@ -1,0 +1,43 @@
+/* Shared look for all LAMMA screens. */
+.root {
+    -fx-font-size: 14px;
+    -fx-background-color: #f4f5f7;
+}
+.screen {
+    -fx-padding: 32;
+    -fx-spacing: 14;
+    -fx-alignment: center;
+}
+.app-title {
+    -fx-font-size: 32px;
+    -fx-font-weight: bold;
+}
+.screen-title {
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+}
+.hint {
+    -fx-text-fill: #555555;
+}
+.message-error {
+    -fx-text-fill: #b00020;
+}
+.message-success {
+    -fx-text-fill: #1b7f3b;
+}
+.primary-button {
+    -fx-background-color: #1f5fbf;
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+}
+.link-button {
+    -fx-background-color: transparent;
+    -fx-text-fill: #1f5fbf;
+    -fx-underline: true;
+    -fx-cursor: hand;
+}
+.choice-button {
+    -fx-pref-width: 220;
+    -fx-pref-height: 70;
+    -fx-font-size: 16px;
+}

@@ -23,7 +23,7 @@ import java.util.List;
  * Running it again does nothing, so it is safe to run every time the application starts.
  *
  * <p>To change the schema later, add a new file such as
- * {@code V002__add_login_attempt_fields.sql} to {@code src/main/resources/db/migration}
+ * {@code V003__describe_the_change.sql} to {@code src/main/resources/db/migration}
  * and append it to {@link #MIGRATIONS}. Never edit a script that has already been applied.
  */
 public final class SchemaMigrator {
@@ -32,7 +32,8 @@ public final class SchemaMigrator {
 
     /** All migration scripts, in the order they must run. Version = position in this list + 1. */
     static final List<String> MIGRATIONS = List.of(
-            "V001__create_users_and_wallets.sql"
+            "V001__create_users_and_wallets.sql",
+            "V002__add_sign_in_lockout_fields.sql"
     );
 
     private final Database database;

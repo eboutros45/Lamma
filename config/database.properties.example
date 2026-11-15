@@ -7,4 +7,5 @@
 
 db.url=jdbc:mysql://localhost:3306/lamma?connectTimeout=5000&socketTimeout=10000
 db.user=lamma_app
-db.password=change-me
+# DEVELOPMENT PLACEHOLDER - replace with the password you set in database/create_database.sql.
+db.password=DEV_ONLY_change_me
