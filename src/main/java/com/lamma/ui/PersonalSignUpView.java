@@ -61,8 +61,12 @@ final class PersonalSignUpView extends VBox {
         message.setText("Creating your account…");
         BackgroundWork.run(
                 () -> navigator.registrationService().registerPersonal(first, last, phone, pin, confirm),
-                (Registration registration) -> navigator.showSignIn(phone.strip(),
-                        "Account created. Sign in with your phone number and PIN."),
+                (Registration registration) -> {
+                    // Only move on if the user is still on this form (the account exists either way).
+                    if (navigator.isShowing(this)) {
+                        navigator.showSignIn(phone.strip(), "Account created. Sign in with your phone number and PIN.");
+                    }
+                },
                 error -> {
                     pinField.clear();
                     confirmPinField.clear();

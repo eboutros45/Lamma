@@ -23,6 +23,9 @@ public class RegistrationService {
     /** MySQL "duplicate entry" error code. */
     private static final int ER_DUP_ENTRY = 1062;
 
+    static final String DATABASE_PROBLEM_MESSAGE =
+            "Registration could not be saved, so no account was created. Check that MySQL is running and try again.";
+
     private final Database database;
     private final PinHasher pinHasher;
 
@@ -63,7 +66,14 @@ public class RegistrationService {
 
         String pinHash = pinHasher.hash(pin);
 
-        try (Connection conn = database.getConnection()) {
+        Connection conn;
+        try {
+            conn = database.getConnection();
+        } catch (DatabaseException e) {
+            // Keep connection details (URL, host) off the Sign Up screen; the cause is logged.
+            throw new DatabaseException(DATABASE_PROBLEM_MESSAGE, e);
+        }
+        try (conn) {
             conn.setAutoCommit(false);
             try {
                 long userId = insertUser(conn, first, last, normalizedPhone, pinHash);
@@ -80,8 +90,7 @@ public class RegistrationService {
             }
             throw new DatabaseException("Registration could not be saved, so no account was created.", e);
         } catch (SQLException e) {
-            throw new DatabaseException("Registration could not be saved, so no account was created. "
-                    + "Check that MySQL is running and try again.", e);
+            throw new DatabaseException(DATABASE_PROBLEM_MESSAGE, e);
         }
     }
 

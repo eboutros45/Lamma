@@ -80,11 +80,11 @@ Two groups of tests are **skipped** unless their environment is available. Maven
 `Skipped`, not passed:
 
 - **29 MySQL integration tests** run only when `LAMMA_TEST_DB_*` is set (see below).
-- **7 JavaFX navigation tests** (`DashboardNavigationTest`) need a graphical display. They always
-  run on macOS and Windows; on Linux they need `DISPLAY` (a desktop session, or `xvfb-run`). No
-  window is shown.
+- **9 JavaFX navigation tests** (`DashboardNavigationTest`, `AsyncNavigationRaceTest`) need a
+  graphical display. They always run on macOS and Windows; on Linux they need `DISPLAY` (a
+  desktop session, or `xvfb-run`). No window is shown.
 
-With neither available, expect `Tests run: 96, Failures: 0, Errors: 0, Skipped: 36`. To run the
+With neither available, expect `Tests run: 100, Failures: 0, Errors: 0, Skipped: 38`. To run the
 MySQL tests, point them at the test database:
 
 ```bash
@@ -93,8 +93,8 @@ LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
 mvn test
 ```
 
-Expect `Skipped: 7` if no display is available (the JavaFX tests), and with a display as well,
-`Tests run: 96, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
+Expect `Skipped: 9` if no display is available (the JavaFX tests), and with a display as well,
+`Tests run: 100, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
 `xvfb-run -a mvn test` (with the variables above).
 
 These tests drop and recreate all tables in that database, so they refuse to run unless the
@@ -218,6 +218,8 @@ Lebanese numbers must have 7 or 8 digits after the `0`/`961`. Any other bare dig
 - **Account switching**: each sign-in builds a new dashboard screen. A slow wallet load that
   finishes after Sign Out, or after another user signs in, is discarded: results are applied only
   if the same sign-in is still active (`UserSession.isCurrent`) and the screen is still showing.
+  Sign In and Sign Up follow the same rule: a slow result is ignored once the user has left that
+  screen, so a late sign-in can never replace someone else's session.
 - **Restart**: the session is in memory only, so a restarted app always starts at Sign In. Accounts
   and wallets are stored in MySQL and are still there.
 
@@ -241,7 +243,7 @@ cp config/database.properties.example config/database.properties   # then set db
 mvn -q compile exec:java         # expect: OK: Connected to MySQL ... schema version 2
 LAMMA_TEST_DB_URL='jdbc:mysql://localhost:3306/lamma_test' \
 LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
-mvn test                         # expect: Tests run: 96, Failures: 0, Errors: 0, Skipped: 0
+mvn test                         # expect: Tests run: 100, Failures: 0, Errors: 0, Skipped: 0
 
 # 4. Run and try it
 mvn javafx:run

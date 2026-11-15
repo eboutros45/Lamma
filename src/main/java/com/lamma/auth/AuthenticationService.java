@@ -30,6 +30,9 @@ public class AuthenticationService {
             "Incorrect phone number or PIN. After " + MAX_FAILED_ATTEMPTS
             + " failed attempts, sign-in is paused for " + LOCKOUT_DURATION.toMinutes() + " minutes.";
 
+    static final String DATABASE_PROBLEM_MESSAGE =
+            "Sign-in could not be completed because of a database problem. Check that MySQL is running and try again.";
+
     private final Database database;
     private final PinHasher pinHasher;
     private final Clock clock;
@@ -55,7 +58,14 @@ public class AuthenticationService {
             throw new ValidationException("PIN must be exactly 6 digits.");
         }
 
-        try (Connection conn = database.getConnection()) {
+        Connection conn;
+        try {
+            conn = database.getConnection();
+        } catch (DatabaseException e) {
+            // Keep connection details (URL, host) off the Sign In screen; the cause is logged.
+            throw new DatabaseException(DATABASE_PROBLEM_MESSAGE, e);
+        }
+        try (conn) {
             conn.setAutoCommit(false);
             try {
                 AuthenticatedUser user = checkCredentials(conn, normalizedPhone, pin);
@@ -69,8 +79,7 @@ public class AuthenticationService {
                 throw e;
             }
         } catch (SQLException e) {
-            throw new DatabaseException("Sign-in could not be completed because of a database problem. "
-                    + "Check that MySQL is running and try again.", e);
+            throw new DatabaseException(DATABASE_PROBLEM_MESSAGE, e);
         }
     }
 

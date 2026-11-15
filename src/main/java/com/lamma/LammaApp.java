@@ -17,6 +17,9 @@ public class LammaApp extends Application {
     public void start(Stage stage) {
         new AppNavigator(stage);
         stage.show();
+        // The screens are laid out for the default window size; don't let it shrink further.
+        stage.setMinWidth(stage.getWidth());
+        stage.setMinHeight(stage.getHeight());
     }
 
     public static void main(String[] args) {

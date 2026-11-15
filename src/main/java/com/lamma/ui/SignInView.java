@@ -1,6 +1,7 @@
 package com.lamma.ui;
 
 import com.lamma.auth.AuthenticatedUser;
+import javafx.application.Platform;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
@@ -44,6 +45,14 @@ final class SignInView extends VBox {
         signUp.setOnAction(event -> navigator.showSignUpChoice());
 
         getChildren().addAll(Screens.appTitle(), Screens.title("Sign In"), form, message, signInButton, signUp);
+
+        // After registration the phone is pre-filled, so start typing in the PIN field.
+        TextField firstField = phone.isEmpty() ? phoneField : pinField;
+        sceneProperty().addListener((obs, oldScene, newScene) -> {
+            if (newScene != null) {
+                Platform.runLater(firstField::requestFocus);
+            }
+        });
     }
 
     private void signIn() {
@@ -53,7 +62,13 @@ final class SignInView extends VBox {
         signInButton.setDisable(true);
         message.setText("Signing in…");
         BackgroundWork.run(() -> navigator.authenticationService().signIn(phone, pin),
-                (AuthenticatedUser user) -> navigator.signedIn(user),
+                (AuthenticatedUser user) -> {
+                    // Ignore a late result if the user has left this screen meanwhile; otherwise a
+                    // slow sign-in could replace the session of someone who signed in since.
+                    if (navigator.isShowing(this)) {
+                        navigator.signedIn(user);
+                    }
+                },
                 error -> {
                     Screens.showError(message, error);
                     signInButton.setDisable(false);
