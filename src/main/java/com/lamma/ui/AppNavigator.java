@@ -8,6 +8,7 @@ import com.lamma.auth.UserSession;
 import com.lamma.cards.PaymentCardService;
 import com.lamma.db.Database;
 import com.lamma.ui.AppShell.Destination;
+import com.lamma.wallet.SharedWalletFundsService;
 import com.lamma.wallet.SharedWalletMembershipService;
 import com.lamma.wallet.SharedWalletService;
 import com.lamma.wallet.TopUpService;
@@ -50,6 +51,7 @@ public final class AppNavigator {
     private TransferService transferService;
     private SharedWalletService sharedWalletService;
     private SharedWalletMembershipService membershipService;
+    private SharedWalletFundsService fundsService;
 
     /** Normal start-up: shows the startup screen, which connects to the database. */
     public AppNavigator(Stage stage) {
@@ -118,6 +120,7 @@ public final class AppNavigator {
         this.transferService = new TransferService(database);
         this.sharedWalletService = new SharedWalletService(database);
         this.membershipService = new SharedWalletMembershipService(database);
+        this.fundsService = new SharedWalletFundsService(database);
         showSignIn("", "");
     }
 
@@ -249,6 +252,22 @@ public final class AppNavigator {
         }
     }
 
+    /** Contribute, Withdraw or Send Money for a shared wallet; Back returns to the wallet. */
+    void showSharedTransfer(long walletId, SharedTransferView.Mode mode) {
+        if (requireSession()) {
+            showFlow(new SharedTransferView(this, user(), walletId, mode), mode.title(),
+                    () -> showSharedWalletDetail(walletId), true);
+        }
+    }
+
+    /** A shared wallet's full transaction history; Back returns to the wallet. */
+    void showSharedWalletHistory(long walletId) {
+        if (requireSession()) {
+            showFlow(new SharedWalletHistoryView(this, user(), walletId), "Shared Wallet History",
+                    () -> showSharedWalletDetail(walletId), false);
+        }
+    }
+
     /** Open an invitation code to ask to join; Back returns to Wallets. */
     void showJoinWallet() {
         if (requireSession()) {
@@ -332,6 +351,15 @@ public final class AppNavigator {
     /** For automated UI tests: supplies the membership service. */
     void useMembershipService(SharedWalletMembershipService service) {
         this.membershipService = service;
+    }
+
+    SharedWalletFundsService fundsService() {
+        return fundsService;
+    }
+
+    /** For automated UI tests: supplies the shared-wallet money service. */
+    void useFundsService(SharedWalletFundsService service) {
+        this.fundsService = service;
     }
 
     // ---------- internals ----------

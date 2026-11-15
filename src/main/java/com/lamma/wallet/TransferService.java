@@ -228,14 +228,14 @@ public class TransferService {
     private static final String RECIPIENT_COLUMNS = "SELECT u.user_id, u.first_name, u.last_name, u.phone_number"
             + " FROM users u JOIN wallets w ON w.owner_user_id = u.user_id AND w.wallet_type = 'PERSONAL'";
 
-    private static Recipient recipientByPhone(Connection conn, String normalizedPhone) throws SQLException {
+    static Recipient recipientByPhone(Connection conn, String normalizedPhone) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(RECIPIENT_COLUMNS + " WHERE u.phone_number = ?")) {
             ps.setString(1, normalizedPhone);
             return readRecipient(ps);
         }
     }
 
-    private static Recipient recipientById(Connection conn, long userId) throws SQLException {
+    static Recipient recipientById(Connection conn, long userId) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(RECIPIENT_COLUMNS + " WHERE u.user_id = ?")) {
             ps.setLong(1, userId);
             return readRecipient(ps);

@@ -92,6 +92,7 @@ class SharedWalletMembershipFlowTest {
                     new TopUpService(database), new PaymentCardService(database), new TransferService(database));
             n.useSharedWalletService(shared);
             n.useMembershipService(new SharedWalletMembershipService(database));
+            n.useFundsService(new com.lamma.wallet.SharedWalletFundsService(database));
             return n;
         });
     }

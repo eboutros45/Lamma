@@ -1,10 +1,10 @@
 # LAMMA Shared Wallets — Implementation Report
 
-**Current phase:** P02, Shared Wallet Membership & Permissions. **Awaiting user review.** P03
-(financial operations) has not been started.
-**Branch:** `alpha2-development` (P01 is `909efdd`). `main` is unchanged.
+**Current phase:** P03, Shared Wallet Financial Operations. **Awaiting user review.** P04 (shared
+expenses) has not been started.
+**Branch:** `alpha2-development` (P01 is `909efdd`, P02 is `bafb4fe`). `main` is unchanged.
 **Verification platform:** Linux (Ubuntu 24.04), OpenJDK 21, Maven 3.9, MySQL 8.0.46, JavaFX 21
-on a virtual display. **Nothing in P01 or P02 has been run on Windows or macOS.**
+on a virtual display. **Nothing in P01, P02 or P03 has been run on Windows or macOS.**
 
 ---
 
@@ -401,5 +401,233 @@ Verified on Linux only. Please run this on Windows with two accounts (A and B):
 |---|---|
 | Branch | `alpha2-development` (pushed) |
 | Previous commit | `909efdd` (Shared Wallet P01) |
-| P02 commit | the commit that adds this section (hash given in the completion message) |
+| P02 commit | `bafb4fe` |
+| `main` | unchanged; nothing merged |
+
+---
+
+## P03 — Shared Wallet Financial Operations
+
+### 1. Summary of changes
+
+**What members can do** (the shared wallet's details screen):
+
+| Action | Owner | Contributor | Spender |
+|---|---|---|---|
+| See balance, target progress, recent activity and the full history | yes | yes | yes |
+| **Contribute** from their own Personal Wallet | yes | yes | yes |
+| **Withdraw** to their own Personal Wallet | yes | — | yes |
+| **Send Money** from the shared wallet to any registered user | yes | — | yes |
+
+- Buttons a member may not use are not created. The service re-checks the role in the database
+  for every operation, so a Contributor is refused even when calling the service directly or
+  opening the screen another way.
+- **Every action follows the Send Money pattern:**
+  1. Amount, with the available balance shown.
+  2. Review, with **From** and **To** (wallet names and balances, or the recipient's name and phone number).
+  3. **Confirm**.
+  4. Success, with the new shared balance and, if it changed, your personal balance.
+  5. **Done**, which returns to the wallet.
+- **Send Money** first looks up the recipient by phone number and shows their name. The recipient
+  can be another member, someone outside the wallet, or the sender themself ("(you)").
+- **History:**
+  - The details screen shows the latest 5 transactions; **View all** opens the shared wallet's
+    full history (up to 100, as for personal wallets).
+  - Each row shows type, signed amount (+ in, − out), the other side, the date and time, the
+    status and a short reference (the first 8 characters of the transfer id).
+  - Example rows: "Contribution · From Lina Haddad", "Withdrawal · To Rami Khoury",
+    "Money Sent · To Sami Aoun · by Rami Khoury".
+- **Personal histories** show the other side: "Contribution · To Beirut Trip", "Withdrawal · From
+  Beirut Trip", "Money Received · From Beirut Trip · sent by Rami Khoury". Top-ups and personal
+  Send Money rows are unchanged.
+- Target progress uses the new shared balance.
+- Loading, empty, error (with Retry, except for "not available") and success states are on all
+  new screens. Light and dark themes and the narrow layout are supported. On narrow windows,
+  Contribute gets its own line and Withdraw / Send Money share the next.
+
+**Not included (as requested):** shared expenses and splitting, contribution requests,
+reimbursements, recurring contributions, spending limits, closing wallets, business wallets,
+bank transfers, QR payments, camera scanning.
+
+### 2. How shared-wallet transfers use the existing transaction model
+
+LAMMA has stored one row per wallet side since Alpha 2 P01. A personal transfer is a
+`TRANSFER_OUT` (DEBIT) row plus a `TRANSFER_IN` (CREDIT) row, linked by `transfer_id`, each
+pointing at the other wallet. This represents shared-wallet operations without change, so it was
+**kept**:
+
+| Operation | DEBIT row (TRANSFER_OUT) on | CREDIT row (TRANSFER_IN) on |
+|---|---|---|
+| Contribution | member's Personal Wallet | shared wallet |
+| Withdrawal | shared wallet | member's Personal Wallet |
+| Send Money | shared wallet | recipient's Personal Wallet |
+
+**V008** adds two nullable columns to `wallet_transactions`:
+- `transfer_kind`: `CONTRIBUTION` / `WITHDRAWAL` / `SHARED_SEND`; NULL for personal Send Money and
+  top-ups.
+- `initiated_by_user_id` (FK to `users`): which member did it. This is needed because the shared
+  wallet itself belongs to no one.
+
+CHECKs require the two together and only on transfer rows. Existing rows are not changed
+(NULL = personal Send Money, as before). No existing constraint was relaxed: amount > 0,
+balance_after ≥ 0, direction per side, one row per side, and the counterparty never being the
+row's own wallet all still apply.
+
+Compared with the LDM's TRANSACTION (one row with sender and receiver wallets): one LDM
+transaction corresponds to our pair of rows with the same `transfer_id`. `sender_wallet_id` /
+`receiver_wallet_id` are the DEBIT row's `wallet_id` / `counterparty_wallet_id`, and
+`reference_code` corresponds to `transfer_id`. The LDM's `category_id` is still not used; it fits
+shared expenses (P04).
+
+**Integrity (`SharedWalletFundsService`)** — each operation is one database transaction that:
+1. **Locks both wallets** with `SELECT … FOR UPDATE` in ascending `wallet_id` order, the same
+   order as personal Send Money, so transfers in opposite directions can't deadlock.
+2. Checks both wallets: the shared one is SHARED and ACTIVE, the personal one PERSONAL and ACTIVE.
+3. **Reads the member's role with a locking read.** Membership changes (P02) lock the same
+   shared-wallet row, so a removal or demotion is entirely before or after the transfer. A plain
+   read could use an older snapshot; the mutation check below shows the test catches that.
+4. **Idempotency:** the request id (one per review screen) is stored UNIQUE as the outgoing row's
+   `request_id`.
+   - Repeating it returns the earlier result and moves nothing.
+   - The same id with a different amount, wallet, kind or member is refused.
+   - Different operations of the same amount each get their own id and all go through.
+5. Re-checks the balance with the wallets locked (no negative balances) and the receiving
+   wallet's maximum.
+6. Updates both balances and inserts both rows, then commits; any failure rolls back everything.
+
+The acting user always comes from the session, and the personal wallet is looked up by that
+user. Non-members, pending invitees and removed members get the same "not available" message as
+for a wallet that doesn't exist.
+
+**Files**
+- New: `V008__add_shared_wallet_transfers.sql`, `SharedWalletFundsService`, `SharedTransferView`
+  (Contribute / Withdraw / Send Money), `SharedWalletHistoryView`.
+- Changed: `WalletTransaction` (+ `transferKind`, `initiatedByName`), `TransactionRecords` (reads
+  and writes the new columns; names a shared wallet by its name), `TransactionLabels`,
+  `SharedWalletDetailView` (money buttons, recent activity), `AppNavigator`, `SchemaMigrator`.
+- `TransferService`: the recipient lookups were made package-visible so they can be reused; its
+  behaviour is unchanged.
+
+### 3. Build and test results
+
+| Configuration | Run | Passed | Failed | Skipped |
+|---|---|---|---|---|
+| Baseline at `bafb4fe` (P02), MySQL and display | 312 | 312 | 0 | 0 |
+| No MySQL settings, no display | 332 | 124 | 0 | 208 |
+| MySQL settings, no display | 332 | 268 | 0 | 64 |
+| **MySQL settings and a display (virtual display)** | **332** | **332** | **0** | **0** |
+
+Skipped tests didn't run and are never counted as passed. There are 144 MySQL integration tests
+and 64 JavaFX UI tests; the two shared-wallet UI flow tests need both and are counted with the
+UI tests.
+
+New tests (20):
+
+| Class | Tests | Needs | Covers |
+|---|---|---|---|
+| `SharedWalletFundsIntegrationTest` | 14 | MySQL | **Contributions by every role**, both rows linked, both histories correct. **Invalid amounts** (0, negative, 3 decimals, over $10,000, missing) and **insufficient funds** move nothing. **Owner and Spender withdraw**; **Owner and Spender send** to an outsider, another member and themself; unknown and missing recipients refused. **Contributor refused** for withdraw, send and recipient lookup, directly through the service; demotion and promotion take effect at once. **Outsider, pending invitee and removed member** refused for everything, including the history; a personal wallet id passed as a shared one is refused. **Idempotency:** a repeat returns the earlier result for all three operations; the same id with other details or by another member is refused; equal amounts with new ids go through. **8 identical requests at once → one transfer.** **12 concurrent withdrawals/sends of $30 from $100 → exactly 3**, the rest "Insufficient funds", nothing negative. **24 mixed transfers in both directions at once** (contributions, withdrawals, personal Send Money, shared sends) → all succeed, no deadlock. **A role change holding the wallet lock is waited for**, and the withdrawal is then refused. **Removal racing a withdrawal (8 rounds)** → always consistent. **Rollback** when the second row fails, for all three operations; the failed request id can be retried once. **Persistence** after a restart (new service), target progress, and personal Send Money unchanged. **Total money constant** throughout |
+| `SharedTransferSchemaIntegrationTest` | 4 | MySQL | The database accepts the three kinds with an initiator; it refuses a kind without an initiator, an initiator without a kind, unknown kinds, a kind on a top-up and unknown users; the V005 transfer rules still apply |
+| `SharedWalletFundsFlowTest` | 2 | MySQL + display | Real screens and services, **both sides**: Lina contributes (a **double click contributes once**), sees the balance, target and activity. Rami as **Contributor** sees only Contribute and contributes; a Withdraw screen opened directly refuses him; his personal history shows "Contribution · To Beirut Trip". **Promoted to Spender**, he withdraws (insufficient amount refused first) and sends to Sami (unknown number refused first). Lina's **full history**: 4 rows in order with names, signs and a reference. Sami's history shows "From Beirut Trip · sent by Rami Khoury". Outsider refused on the history and Contribute screens; invalid amounts caught; **a balance change between review and confirm is refused by the database** and nothing moves |
+
+**Existing tests changed:** `SharedWalletFlowTest` gives the screen a stub money service, and its
+details-screen check now expects the money buttons and "View all"; `SharedWalletMembershipFlowTest`
+also uses the real money service.
+
+**A bug found by the tests and fixed:** the first version also took a shared lock on the
+`shared_wallets` row after locking the wallets. Membership changes lock those rows in the
+opposite order, so "remove a member" racing "withdraw" deadlocked (MySQL picked a victim). The
+`removalAndWithdrawalAtTheSameMomentStayConsistent` test caught it. That row is now read without
+a lock (it is never deleted), and the wallet row is the single point where they meet. The test
+then passed three runs in a row.
+
+**Mutation checks** (to show the key tests can fail; each change was reverted):
+
+| Change | Test that failed |
+|---|---|
+| Wallets read without `FOR UPDATE` | 12 concurrent withdrawals → overdrawn |
+| Role read without a lock (snapshot) | role change in progress → withdrawal allowed after demotion |
+| Duplicate-request check removed | 8 identical requests → several transfers / database error |
+
+**Upgrade check:** a database built by the previous commit (`bafb4fe`, schema 7) contained users,
+a cash top-up, a personal transfer pair, a shared wallet, a membership, an invitation and a QR
+code. It was then upgraded to version 8:
+- All 19 existing rows were **identical** after the upgrade (compared column by column; the only
+  difference is the new `schema_version` row).
+- The three existing transactions have NULL kind and initiator.
+- On the upgraded data, a contribution and a withdrawal worked, both histories were correct, and
+  total money stayed at $80.00.
+- Running the migration again applied nothing.
+
+**Real app on Linux, two users** (real `lamma` database, upgraded to 8 on launch):
+
+| Step | Who | Result |
+|---|---|---|
+| Contribute $50 to Beirut Trip (light, wide) | Lina (Owner) | Lina $166.00 → $116.00, Beirut Trip $50.00, target 3% |
+| Contribute $20 (dark, compact) | Rami (Spender) | Beirut Trip $70.00 |
+| Withdraw $10 | Rami | Beirut Trip $60.00, Rami $41.50 |
+| Send Money $5 to Lina | Rami | Beirut Trip $55.00, Lina $121.00 |
+| View the shared history and their own personal history | both | as described in §1 |
+| Make Rami a Contributor, then reopen the wallet | Lina, then Rami | Rami sees only Contribute |
+
+- Database afterwards: 8 transfer rows, in 4 linked pairs, with kind, initiator and
+  balance_after correct.
+- Total money is **$217.50 before and after**.
+- Rami is now a Contributor in Beirut Trip; he was a Spender before this test.
+- The theme was set back to System.
+- Screenshots are attached to the handoff.
+
+### 4. Outstanding issues and decisions for review
+
+1. **Per-operation maximum:** each contribution, withdrawal or send is limited to $10,000.00, the
+   existing rule for top-ups and Send Money ("existing currency and decimal conventions"). It is
+   not a role-based spending limit. Tell us if shared wallets should have no per-operation cap.
+2. **Short references:** history rows show the first 8 characters of the transfer id; the full id
+   is stored, and both rows share it. No separate `reference_code` column was added.
+3. **Narrow windows:** long detail lines in history rows end with "…", hiding the date and
+   reference. This is the existing behaviour of all history rows; nothing was lost, but you may
+   want detail lines to wrap.
+4. **Sending to yourself:** a Spender can use Send Money to their own number. It is recorded as
+   "Money Sent … (you)" rather than as a withdrawal. It is allowed because the brief says
+   "or the sender's own personal wallet"; a source and destination that resolve to the same
+   wallet are refused.
+5. **Who did it:** shared-wallet rows record the initiating member; personal Send Money rows
+   still don't (unchanged).
+6. **The JavaFX CSS warning from P02** now appears 16 times in the GUI test run instead of 3:
+   8 in `SharedWalletMembershipFlowTest` and 8 in the new `SharedWalletFundsFlowTest`. Both switch
+   accounts while a shared wallet with more icon buttons is open. A trace confirmed it is the same
+   cause (the old screen is restyled after being discarded); still harmless (see P02 §4.6).
+7. **Earlier transfers are not re-labelled:** rows created before V008 have no kind and keep
+   their old labels. There were no shared-wallet transfers before P03, so nothing is affected.
+8. **History limit:** the screens show the latest 100 transactions per wallet (same as personal);
+   there is no paging yet.
+
+### 5. Windows manual-testing checklist
+
+Verified on Linux only. Please run this on Windows with two accounts, A (Owner) and B (member):
+
+1. `git pull`, then `mvn -q compile exec:java` → `OK: … schema version 8 (1 migration(s) applied now)`.
+2. `mvn test` (with the `LAMMA_TEST_DB_*` variables) → `Tests run: 332, Failures: 0, Errors: 0, Skipped: 0`.
+3. A: top up the personal wallet if needed → open a shared wallet → **Contribute** `20` → the review
+   shows From "Your Personal Wallet" and To the wallet → **Confirm** → both new balances shown →
+   **Done** → the balance, target and Recent activity ("Contribution · From A") are updated.
+4. Try `0`, `abc`, `1.234` and more than your balance → each is refused, nothing moves.
+5. B as **Contributor**: only **Contribute** is shown; contribute `5`.
+6. A makes B a **Spender**. B: **Withdraw** `3` → B's personal balance increases. B: **Send Money**
+   → an unknown number is refused → A's number shows A's name → `2` → **Confirm and Send**.
+7. Double-click **Confirm** once → only one transaction appears in **View all**.
+8. **View all** (as A and as B): the same rows, newest first, + for contributions, − for the
+   withdrawal and the send, with names and "Ref …".
+9. Home → **View all** for A and B: "Contribution · To <wallet>", "Withdrawal · From <wallet>",
+   "Money Received · From <wallet> · sent by B".
+10. A removes B → B can no longer open the wallet or its history.
+11. Resize narrow and wide, Light and Dark → buttons and amounts readable.
+12. Personal top-ups and Send Money still work as before.
+
+### 6. Commit
+
+| Item | Value |
+|---|---|
+| Branch | `alpha2-development` (pushed) |
+| Previous commit | `bafb4fe` (Shared Wallet P02) |
+| P03 commit | the commit that adds this section (hash given in the completion message) |
 | `main` | unchanged; nothing merged |

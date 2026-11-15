@@ -11,12 +11,17 @@ import java.time.LocalDateTime;
  * @param cardLast4            card top-ups: last four digits of the card used; otherwise null
  * @param transferId           transfers: id shared by the sent and received rows; otherwise null
  * @param counterpartyWalletId transfers: the other wallet; otherwise null
- * @param counterpartyName     transfers: "First Last" of the other wallet's owner (read, not stored)
+ * @param counterpartyName     transfers: "First Last" of the other wallet's owner, or the shared
+ *                             wallet's name when the other wallet is shared (read, not stored)
+ * @param transferKind         shared-wallet transfers: {@link #KIND_CONTRIBUTION}, {@link #KIND_WITHDRAWAL}
+ *                             or {@link #KIND_SHARED_SEND}; null for personal Send Money and top-ups
+ * @param initiatedByName      shared-wallet transfers: "First Last" of the member who started it
  */
 public record WalletTransaction(long transactionId, long walletId, String type, String direction,
                                 BigDecimal amount, BigDecimal balanceAfter, String status,
                                 LocalDateTime createdAt, String cardBrand, String cardLast4,
-                                String transferId, Long counterpartyWalletId, String counterpartyName) {
+                                String transferId, Long counterpartyWalletId, String counterpartyName,
+                                String transferKind, String initiatedByName) {
 
     // Values stored in the database (see V003-V005 migrations).
     public static final String TYPE_CASH_TOP_UP = "CASH_TOP_UP";
@@ -26,6 +31,19 @@ public record WalletTransaction(long transactionId, long walletId, String type, 
     public static final String CREDIT = "CREDIT";
     public static final String DEBIT = "DEBIT";
     public static final String STATUS_COMPLETED = "COMPLETED";
+    // Kinds of shared-wallet transfer (V008).
+    public static final String KIND_CONTRIBUTION = "CONTRIBUTION";
+    public static final String KIND_WITHDRAWAL = "WITHDRAWAL";
+    public static final String KIND_SHARED_SEND = "SHARED_SEND";
+
+    /** A transaction that is not a shared-wallet transfer (top-up or personal Send Money). */
+    public WalletTransaction(long transactionId, long walletId, String type, String direction,
+                             BigDecimal amount, BigDecimal balanceAfter, String status, LocalDateTime createdAt,
+                             String cardBrand, String cardLast4, String transferId, Long counterpartyWalletId,
+                             String counterpartyName) {
+        this(transactionId, walletId, type, direction, amount, balanceAfter, status, createdAt, cardBrand,
+                cardLast4, transferId, counterpartyWalletId, counterpartyName, null, null);
+    }
 
     /** A transaction without card or transfer details (e.g. a cash top-up). */
     public WalletTransaction(long transactionId, long walletId, String type, String direction,
@@ -48,6 +66,7 @@ public record WalletTransaction(long transactionId, long walletId, String type, 
     /** A copy with the database id filled in (after insert). */
     WalletTransaction withId(long id) {
         return new WalletTransaction(id, walletId, type, direction, amount, balanceAfter, status, createdAt,
-                cardBrand, cardLast4, transferId, counterpartyWalletId, counterpartyName);
+                cardBrand, cardLast4, transferId, counterpartyWalletId, counterpartyName, transferKind,
+                initiatedByName);
     }
 }

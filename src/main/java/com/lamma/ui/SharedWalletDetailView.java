@@ -8,6 +8,7 @@ import com.lamma.wallet.SharedWallet;
 import com.lamma.wallet.SharedWalletMembershipService.JoinRequest;
 import com.lamma.wallet.SharedWalletMembershipService.OutgoingInvitation;
 import com.lamma.wallet.SharedWalletService;
+import com.lamma.wallet.WalletTransaction;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
@@ -30,13 +31,19 @@ import javafx.scene.layout.VBox;
  * leave. Owner tools are hidden from members, but the service checks every action against the
  * database anyway. After each action the screen reloads from the database.
  *
- * <p>No money moves in or out of shared wallets yet, so there are no money buttons here.
+ * <p>Money: every member can Contribute; the Owner and Spenders can also Withdraw and Send
+ * Money. Buttons a member may not use are not shown, and the service re-checks the role in the
+ * database for every operation. The latest activity is shown, with "View all" for the history.
  */
 final class SharedWalletDetailView extends VBox {
 
     /** Everything this screen shows; the Owner-only lists are empty for other members. */
-    private record Data(SharedWallet.Details details, List<JoinRequest> requests, List<OutgoingInvitation> invitations) {
+    private record Data(SharedWallet.Details details, List<JoinRequest> requests, List<OutgoingInvitation> invitations,
+                        List<WalletTransaction> recent) {
     }
+
+    /** How many transactions the details screen shows; "View all" shows the full history. */
+    static final int RECENT_LIMIT = 5;
 
     private final AppNavigator navigator;
     private final AuthenticatedUser user;
@@ -61,12 +68,13 @@ final class SharedWalletDetailView extends VBox {
         long userId = user.userId(); // access is checked against the signed-in user's membership
         BackgroundWork.run(() -> {
                     SharedWallet.Details details = navigator.sharedWalletService().details(userId, walletId);
+                    List<WalletTransaction> recent = navigator.fundsService().history(userId, walletId, RECENT_LIMIT);
                     if (details.wallet().myRole() != MemberRole.OWNER) {
-                        return new Data(details, List.of(), List.of());
+                        return new Data(details, List.of(), List.of(), recent);
                     }
                     return new Data(details,
                             navigator.membershipService().pendingJoinRequests(userId, walletId),
-                            navigator.membershipService().pendingInvitations(userId, walletId));
+                            navigator.membershipService().pendingInvitations(userId, walletId), recent);
                 },
                 (Data data) -> {
                     if (stillCurrent()) {
@@ -95,7 +103,7 @@ final class SharedWalletDetailView extends VBox {
     private void show(Data data) {
         SharedWallet.Summary w = data.details().wallet();
         boolean owner = w.myRole() == MemberRole.OWNER;
-        getChildren().setAll(hero(w));
+        getChildren().setAll(hero(w), moneyActions(w.myRole()));
 
         if (w.targetAmount() != null) {
             getChildren().add(target(w));
@@ -119,6 +127,7 @@ final class SharedWalletDetailView extends VBox {
         if (owner && !data.requests().isEmpty()) {
             getChildren().add(joinRequests(data.requests()));
         }
+        getChildren().add(recentActivity(data.recent()));
         getChildren().add(members(data.details(), owner));
         if (owner && !data.invitations().isEmpty()) {
             getChildren().add(pendingInvitations(data.invitations()));
@@ -126,13 +135,86 @@ final class SharedWalletDetailView extends VBox {
         if (!owner) {
             getChildren().add(leaveArea());
         }
-        // Plain text, not buttons: these actions don't exist yet.
-        Label next = Screens.hint("Contributions, spending and shared expenses will be added in later updates.");
+        // Plain text, not a button: this doesn't exist yet.
+        Label next = Screens.hint("Shared expenses will be added in a later update.");
         next.setId("sharedWalletComingNext");
         getChildren().add(next);
     }
 
     // ---------- sections ----------
+
+    /**
+     * Contribute for everyone; Withdraw and Send Money only for the Owner and Spenders. One row
+     * when there is room; on narrow windows Contribute gets its own line so no label is cut.
+     */
+    private javafx.scene.layout.GridPane moneyActions(MemberRole role) {
+        Button contribute = Screens.withIcon(new Button("Contribute"), Icon.ADD);
+        contribute.setId("contributeButton");
+        contribute.getStyleClass().add("action-button");
+        contribute.setOnAction(event -> navigator.showSharedTransfer(walletId, SharedTransferView.Mode.CONTRIBUTE));
+        List<Button> buttons = new java.util.ArrayList<>(List.of(contribute));
+        if (role.canSendOut()) {
+            Button withdraw = Screens.withIcon(new Button("Withdraw"), Icon.RECEIVED);
+            withdraw.setId("withdrawButton");
+            withdraw.getStyleClass().add("secondary-action-button");
+            withdraw.setOnAction(event -> navigator.showSharedTransfer(walletId, SharedTransferView.Mode.WITHDRAW));
+            Button send = Screens.withIcon(new Button("Send Money"), Icon.SEND);
+            send.setId("sharedSendButton");
+            send.getStyleClass().add("secondary-action-button");
+            send.setOnAction(event -> navigator.showSharedTransfer(walletId, SharedTransferView.Mode.SEND));
+            buttons.add(withdraw);
+            buttons.add(send);
+        }
+        // A grid whose cells change with the width: the buttons are never moved to another
+        // parent (re-parenting icon buttons makes JavaFX log CSS warnings).
+        javafx.scene.layout.GridPane grid = new javafx.scene.layout.GridPane();
+        grid.setId("moneyActions");
+        grid.setHgap(10);
+        grid.setVgap(10);
+        for (int i = 0; i < buttons.size(); i++) {
+            Button b = buttons.get(i);
+            b.setMaxWidth(Double.MAX_VALUE);
+            b.setPrefWidth(0);
+            grid.add(b, i, 0);
+        }
+        java.util.function.Consumer<Boolean> arrange = narrow -> {
+            grid.getColumnConstraints().clear();
+            int columns = buttons.size() == 1 ? 1 : narrow ? 2 : 3;
+            for (int c = 0; c < columns; c++) {
+                javafx.scene.layout.ColumnConstraints cc = new javafx.scene.layout.ColumnConstraints();
+                cc.setPercentWidth(100.0 / columns);
+                cc.setHgrow(Priority.ALWAYS);
+                grid.getColumnConstraints().add(cc);
+            }
+            if (buttons.size() > 1) {
+                javafx.scene.layout.GridPane.setConstraints(buttons.get(0), 0, 0, narrow ? 2 : 1, 1);
+                javafx.scene.layout.GridPane.setConstraints(buttons.get(1), narrow ? 0 : 1, narrow ? 1 : 0);
+                javafx.scene.layout.GridPane.setConstraints(buttons.get(2), narrow ? 1 : 2, narrow ? 1 : 0);
+            }
+            grid.setUserData(narrow);
+        };
+        arrange.accept(false);
+        grid.widthProperty().addListener((obs, before, now) -> {
+            boolean narrow = now.doubleValue() < 520;
+            if (!Boolean.valueOf(narrow).equals(grid.getUserData())) {
+                arrange.accept(narrow);
+            }
+        });
+        return grid;
+    }
+
+    private VBox recentActivity(List<WalletTransaction> recent) {
+        VBox list = new VBox();
+        list.setId("sharedActivityList");
+        ActivityRows.fill(list, recent, "No activity yet. Contributions, withdrawals and payments will appear here.");
+        Button viewAll = Screens.linkButton("View all", "viewSharedHistoryButton");
+        viewAll.setOnAction(event -> navigator.showSharedWalletHistory(walletId));
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        HBox title = new HBox(Screens.sectionTitle("Recent activity"), spacer, viewAll);
+        title.setAlignment(Pos.CENTER_LEFT);
+        return card(title, list);
+    }
 
     private VBox hero(SharedWallet.Summary w) {
         Label name = new Label(w.name());

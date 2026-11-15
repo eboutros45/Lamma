@@ -15,7 +15,11 @@ personal wallet balance and sign out. Alpha 2 adds:
   and members.
 - **Shared wallet membership** (Shared Wallet P02): the Owner invites by phone number or shares a
   QR invitation, approves join requests, switches members between Contributor and Spender and
-  removes them; members can leave. Contributions and expenses come in later phases.
+  removes them; members can leave.
+- **Shared wallet money** (Shared Wallet P03): every member can **Contribute** from their Personal
+  Wallet; the Owner and Spenders can also **Withdraw** to their own Personal Wallet and **Send
+  Money** from the shared wallet to any registered user. Every member sees the shared wallet's
+  history. Shared expenses come in a later phase.
 
 All money is simulated. Business accounts are still "Coming Soon".
 
@@ -63,7 +67,7 @@ JavaFX and the MySQL JDBC driver are downloaded by Maven automatically.
    mvn -q compile exec:java
    ```
 
-   Expected output: `OK: Connected to MySQL 8.0.x, database 'lamma', schema version 7 ...`
+   Expected output: `OK: Connected to MySQL 8.0.x, database 'lamma', schema version 8 ...`
 
    > Once a database has been upgraded to version 3 or later, the Alpha 1 app on `main` refuses to start
    > against it ("schema is newer than this application"). If you switch between `main` and
@@ -155,15 +159,15 @@ mvn test
 Two groups of tests are **skipped** unless their environment is available. Maven reports them as
 `Skipped`, not passed:
 
-- **126 MySQL integration tests** run only when `LAMMA_TEST_DB_*` is set (see below).
-- **62 JavaFX UI tests** (`DashboardNavigationTest`, `AsyncNavigationRaceTest`, `CashTopUpFlowTest`,
+- **144 MySQL integration tests** run only when `LAMMA_TEST_DB_*` is set (see below).
+- **64 JavaFX UI tests** (`DashboardNavigationTest`, `AsyncNavigationRaceTest`, `CashTopUpFlowTest`,
   `CardFlowsTest`, `SendMoneyFlowTest`, `AppShellNavigationTest`, `SharedWalletFlowTest`,
-  `SharedWalletMembershipFlowTest`) need a
+  `SharedWalletMembershipFlowTest`, `SharedWalletFundsFlowTest`) need a
   graphical display. They always run on macOS and Windows; on Linux they need `DISPLAY` (a
-  desktop session, or `xvfb-run`). No window is shown. `SharedWalletMembershipFlowTest` (3 tests)
-  needs MySQL as well and is counted here.
+  desktop session, or `xvfb-run`). No window is shown. `SharedWalletMembershipFlowTest` (3 tests) and
+  `SharedWalletFundsFlowTest` (2) need MySQL as well and are counted here.
 
-With neither available, expect `Tests run: 312, Failures: 0, Errors: 0, Skipped: 188`. To run the
+With neither available, expect `Tests run: 332, Failures: 0, Errors: 0, Skipped: 208`. To run the
 MySQL tests, point them at the test database:
 
 ```bash
@@ -172,8 +176,8 @@ LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
 mvn test
 ```
 
-Expect `Skipped: 62` if no display is available (the JavaFX tests), and with a display as well,
-`Tests run: 312, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
+Expect `Skipped: 64` if no display is available (the JavaFX tests), and with a display as well,
+`Tests run: 332, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
 `xvfb-run -a mvn test` (with the variables above).
 
 These tests drop and recreate all tables in that database, so they refuse to run unless the
@@ -210,7 +214,7 @@ MySQL                                 users, wallets, schema_version
 - `src/main/resources/db/migration/`: versioned schema scripts.
 - `database/create_database.sql`: one-time admin setup (database and user).
 
-## Database schema (version 7)
+## Database schema (version 8)
 
 ### `users` (USER)
 
@@ -251,7 +255,9 @@ will be one DEBIT row plus one CREDIT row.
 | `status` | VARCHAR(20) | `CHECK IN ('COMPLETED')`. Later phases may add e.g. `PENDING` |
 | `card_brand`, `card_last4` | VARCHAR(20), CHAR(4), NULL | V004: a copy of the card used. **Required** for `CARD_TOP_UP`, **must be NULL** otherwise. Kept even if the card is removed |
 | `transfer_id` | VARCHAR(36), NULL | V005: shared by the sent and received rows of one transfer. **UNIQUE** (`transfer_id`, `transaction_type`) allows exactly one row per side |
-| `counterparty_wallet_id` | FK → `wallets`, NULL | V005: the other wallet in a transfer (never the row's own wallet). Names are read through it, not copied |
+| `counterparty_wallet_id` | FK → `wallets`, NULL | V005: the other wallet in a transfer (never the row's own wallet). Names are read through it, not copied: the owner's name for a personal wallet, the wallet's name for a shared one |
+| `transfer_kind` | VARCHAR(20), NULL | V008: `CONTRIBUTION`, `WITHDRAWAL` or `SHARED_SEND` for shared-wallet transfers; NULL for personal Send Money and top-ups |
+| `initiated_by_user_id` | FK → `users`, NULL | V008: the member who started a shared-wallet transfer. Required exactly when `transfer_kind` is set |
 | `request_id` | VARCHAR(36), **UNIQUE** | One id per confirmation, so a repeated request can't credit twice |
 | `created_at` | DATETIME | Stored in **UTC**, shown in the computer's time zone |
 
@@ -307,6 +313,35 @@ it as is. Without a scanner, the link or the bare 24-character code can be paste
 working), and **Turn off** removes it. QR images are drawn with ZXing `core` 3.5.3 (Apache-2.0,
 no other dependencies), always black on white.
 
+### Shared wallet money (V008)
+
+Shared-wallet money movements use the **same transfer rows as personal Send Money**. Each
+operation is one logical transfer stored as two rows in one database transaction: a
+`TRANSFER_OUT` (DEBIT) row on the wallet the money leaves and a `TRANSFER_IN` (CREDIT) row on the
+wallet it enters. Both carry the same `transfer_id`, point at each other through
+`counterparty_wallet_id`, and carry the same `transfer_kind` and `initiated_by_user_id`.
+
+| Operation | Who | Money moves | Shared wallet history shows |
+|---|---|---|---|
+| Contribute | any member | member's Personal Wallet → shared wallet | Contribution, + amount, from the member |
+| Withdraw | Owner, Spender | shared wallet → that member's Personal Wallet | Withdrawal, − amount, to the member |
+| Send Money | Owner, Spender | shared wallet → any registered user's Personal Wallet | Money Sent, − amount, to the recipient, by the member |
+
+- Rules are enforced in `SharedWalletFundsService`, not only by hiding buttons. A Contributor,
+  a removed member, someone with only a pending invitation and outsiders are refused even when
+  the service is called directly.
+- **Locking:** both wallets are locked with `SELECT … FOR UPDATE` in ascending `wallet_id` order,
+  the same order as personal Send Money. Membership changes lock the shared wallet's row too, so
+  a removal or role change happens entirely before or after a transfer. The member's role and
+  both balances are re-read after the locks.
+- **Idempotency:** each review screen creates one request id, stored as the `request_id` of the
+  outgoing row (UNIQUE). Repeating it (double click, retry after a lost answer) returns the
+  earlier result and moves nothing; reusing it for different details is refused.
+- Amounts follow the existing rules: $0.01 to $10,000.00 per operation, cents only, and no
+  balance may go below zero or above the column's maximum.
+- Each wallet's history shows one row per operation (its own side). History rows for shared
+  transfers show a short reference: the first 8 characters of the transfer id.
+
 ### `payment_cards` (Alpha 2 P02)
 
 Saved cards hold **metadata only**. There is no column for the card number or CVV.
@@ -344,6 +379,7 @@ first.
 | 5 | `V005__add_wallet_transfers.sql` | `TRANSFER_OUT` / `TRANSFER_IN`, `transfer_id`, `counterparty_wallet_id` (Alpha 2 P03) |
 | 6 | `V006__add_shared_wallets.sql` | `wallets.name`, `wallets.status`, type `SHARED`, `shared_wallets`, `shared_wallet_members` (Shared Wallet P01) |
 | 7 | `V007__add_shared_wallet_invitations.sql` | `shared_wallets.invite_token`, `shared_wallet_invitations`, `shared_wallet_join_requests` (Shared Wallet P02) |
+| 8 | `V008__add_shared_wallet_transfers.sql` | `wallet_transactions.transfer_kind`, `wallet_transactions.initiated_by_user_id` (Shared Wallet P03) |
 
 When adding a table that references `users`, `wallets`, `wallet_transactions`, `payment_cards`, `shared_wallets`, `shared_wallet_members`, `shared_wallet_invitations` or
 `shared_wallet_join_requests`, also add it to
@@ -484,10 +520,10 @@ mysql -u root < database/create_database.sql
 cp config/database.properties.example config/database.properties   # then set db.password
 
 # 3. Verify
-mvn -q compile exec:java         # expect: OK: Connected to MySQL ... schema version 7
+mvn -q compile exec:java         # expect: OK: Connected to MySQL ... schema version 8
 LAMMA_TEST_DB_URL='jdbc:mysql://localhost:3306/lamma_test' \
 LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
-mvn test                         # expect: Tests run: 312, Failures: 0, Errors: 0, Skipped: 0
+mvn test                         # expect: Tests run: 332, Failures: 0, Errors: 0, Skipped: 0
 
 # 4. Run and try it
 mvn javafx:run
@@ -523,3 +559,8 @@ Manual check in the app:
    invitation under Wallets, accepts it and appears as a Contributor. The first account then uses
    **QR Invitation**, copies the link, and the second pastes it under **Join with an invitation
    code** for another wallet; the first approves the request.
+10. Shared wallet money, with both accounts in that wallet: the first account (Owner) uses
+    **Contribute** for `20` and checks both balances and the activity row. The second account
+    (Contributor) sees only **Contribute**. After the Owner makes it a Spender, it can
+    **Withdraw** `5` and **Send Money** `1` to the first account's number; **View all** shows
+    the four operations, and both personal histories show the matching rows.

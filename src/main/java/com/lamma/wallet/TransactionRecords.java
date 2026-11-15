@@ -13,14 +13,18 @@ final class TransactionRecords {
 
     /**
      * Columns read for a transaction. The table must be aliased as "t". The counterparty's
-     * name is looked up through the counterparty wallet (transfers only; otherwise NULL).
+     * name is looked up through the counterparty wallet (transfers only; otherwise NULL): the
+     * owner's name for a personal wallet, the wallet's name for a shared wallet.
      */
     static final String COLUMNS = "t.transaction_id, t.wallet_id, t.transaction_type, t.direction,"
             + " t.amount, t.balance_after, t.status, t.created_at, t.card_brand, t.card_last4,"
-            + " t.transfer_id, t.counterparty_wallet_id,"
-            + " (SELECT CONCAT(cu.first_name, ' ', cu.last_name) FROM wallets cw"
-            + "   JOIN users cu ON cu.user_id = cw.owner_user_id"
-            + "   WHERE cw.wallet_id = t.counterparty_wallet_id) AS counterparty_name";
+            + " t.transfer_id, t.counterparty_wallet_id, t.transfer_kind,"
+            + " (SELECT CASE WHEN cw.wallet_type = 'SHARED' THEN cw.name"
+            + "   ELSE CONCAT(cu.first_name, ' ', cu.last_name) END FROM wallets cw"
+            + "   LEFT JOIN users cu ON cu.user_id = cw.owner_user_id"
+            + "   WHERE cw.wallet_id = t.counterparty_wallet_id) AS counterparty_name,"
+            + " (SELECT CONCAT(iu.first_name, ' ', iu.last_name) FROM users iu"
+            + "   WHERE iu.user_id = t.initiated_by_user_id) AS initiated_by_name";
 
     private TransactionRecords() {
     }
@@ -40,14 +44,25 @@ final class TransactionRecords {
                 rs.getString("card_last4"),
                 rs.getString("transfer_id"),
                 counterparty == 0 ? null : counterparty, // NULL reads as 0; wallet ids start at 1
-                rs.getString("counterparty_name"));
+                rs.getString("counterparty_name"),
+                rs.getString("transfer_kind"),
+                rs.getString("initiated_by_name"));
     }
 
-    /** Inserts one row and returns its new transaction id. */
+    /** Inserts one row (not a shared-wallet transfer) and returns its new transaction id. */
     static long insert(Connection conn, WalletTransaction t, String requestId) throws SQLException {
+        return insert(conn, t, requestId, null);
+    }
+
+    /**
+     * Inserts one row and returns its new transaction id. {@code initiatedBy} is the member who
+     * started a shared-wallet transfer ({@code t.transferKind()} set); null otherwise.
+     */
+    static long insert(Connection conn, WalletTransaction t, String requestId, Long initiatedBy) throws SQLException {
         String sql = "INSERT INTO wallet_transactions (wallet_id, transaction_type, direction, amount,"
                 + " balance_after, status, card_brand, card_last4, transfer_id, counterparty_wallet_id,"
-                + " request_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                + " request_id, created_at, transfer_kind, initiated_by_user_id)"
+                + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         try (PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             ps.setLong(1, t.walletId());
             ps.setString(2, t.type());
@@ -65,6 +80,12 @@ final class TransactionRecords {
             }
             ps.setString(11, requestId);
             ps.setObject(12, t.createdAt());
+            ps.setString(13, t.transferKind());
+            if (initiatedBy == null) {
+                ps.setNull(14, Types.BIGINT);
+            } else {
+                ps.setLong(14, initiatedBy);
+            }
             ps.executeUpdate();
             try (ResultSet keys = ps.getGeneratedKeys()) {
                 if (!keys.next()) {

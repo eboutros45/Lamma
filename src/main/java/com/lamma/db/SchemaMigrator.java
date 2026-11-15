@@ -38,7 +38,8 @@ public final class SchemaMigrator {
             "V004__add_payment_cards_and_card_top_ups.sql",
             "V005__add_wallet_transfers.sql",
             "V006__add_shared_wallets.sql",
-            "V007__add_shared_wallet_invitations.sql"
+            "V007__add_shared_wallet_invitations.sql",
+            "V008__add_shared_wallet_transfers.sql"
     );
 
     private final Database database;

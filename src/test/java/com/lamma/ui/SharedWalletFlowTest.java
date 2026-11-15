@@ -103,6 +103,12 @@ class SharedWalletFlowTest {
                     return List.of();
                 }
             });
+            n.useFundsService(new com.lamma.wallet.SharedWalletFundsService(null) {
+                @Override
+                public List<com.lamma.wallet.WalletTransaction> history(long userId, long walletId, int limit) {
+                    return List.of();
+                }
+            });
             return n;
         });
     }
@@ -156,8 +162,11 @@ class SharedWalletFlowTest {
         assertEquals("$0.00 of $1,500.00 (0%)", text("#targetLabel"));
         assertEquals("Owner", text("#memberRole-1"));
         assertTrue(screenText().contains("Lina Haddad (you)"));
-        // Shared Wallet P02 added the Owner's membership actions; still nothing for money or expenses.
-        assertEquals(List.of("inviteMemberButton", "shareQrButton"), buttonsOnScreen());
+        // P03 added the money actions (the Owner has all three) and the activity link;
+        // P02 the Owner's membership actions. Still nothing for shared expenses.
+        assertEquals(List.of("contributeButton", "withdrawButton", "sharedSendButton", "inviteMemberButton",
+                "shareQrButton", "viewSharedHistoryButton"), buttonsOnScreen());
+        assertTrue(screenText().contains("No activity yet."));
 
         clickIn(navigator.windowRoot(), "#flowBackButton");
         assertInstanceOf(WalletsView.class, onFx(navigator::currentScreen));
