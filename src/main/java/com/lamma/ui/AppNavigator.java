@@ -8,6 +8,7 @@ import com.lamma.auth.UserSession;
 import com.lamma.cards.PaymentCardService;
 import com.lamma.db.Database;
 import com.lamma.wallet.TopUpService;
+import com.lamma.wallet.TransferService;
 import com.lamma.wallet.WalletService;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
@@ -27,6 +28,7 @@ public final class AppNavigator {
     private WalletService walletService;
     private TopUpService topUpService;
     private PaymentCardService paymentCardService;
+    private TransferService transferService;
 
     /** Normal start-up: shows the startup screen, which connects to the database. */
     public AppNavigator(Stage stage) {
@@ -49,7 +51,14 @@ public final class AppNavigator {
     /** For automated UI tests, including the card screens. */
     AppNavigator(Stage stage, RegistrationService registration, AuthenticationService authentication,
                  WalletService wallets, TopUpService topUps, PaymentCardService cards) {
+        this(stage, registration, authentication, wallets, topUps, cards, null);
+    }
+
+    /** For automated UI tests, including Send Money. */
+    AppNavigator(Stage stage, RegistrationService registration, AuthenticationService authentication,
+                 WalletService wallets, TopUpService topUps, PaymentCardService cards, TransferService transfers) {
         this.scene = createScene(stage);
+        this.transferService = transfers;
         this.paymentCardService = cards;
         this.registrationService = registration;
         this.authenticationService = authentication;
@@ -74,6 +83,7 @@ public final class AppNavigator {
         this.walletService = new WalletService(database);
         this.topUpService = new TopUpService(database);
         this.paymentCardService = new PaymentCardService(database);
+        this.transferService = new TransferService(database);
         showSignIn("", "");
     }
 
@@ -149,6 +159,15 @@ public final class AppNavigator {
         show(new AddCardView(this, session.currentUser().orElseThrow()));
     }
 
+    /** Send Money (signed-in users only). */
+    void showSendMoney() {
+        if (!session.isSignedIn()) {
+            showSignIn("", "");
+            return;
+        }
+        show(new SendMoneyView(this, session.currentUser().orElseThrow()));
+    }
+
     void signOut() {
         session.signOut();
         showSignIn("", "You have signed out.");
@@ -185,6 +204,10 @@ public final class AppNavigator {
 
     PaymentCardService paymentCardService() {
         return paymentCardService;
+    }
+
+    TransferService transferService() {
+        return transferService;
     }
 
     private void show(Parent screen) {

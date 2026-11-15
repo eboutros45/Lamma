@@ -50,8 +50,17 @@ public final class Amounts {
         checkTopUp(amount);
     }
 
+    /** Checks the limits for one transfer (same as a top-up: $0.01 to $10,000.00, cents only). */
+    public static void checkTransfer(BigDecimal amount) throws ValidationException {
+        check(amount, "transfer");
+    }
+
     /** Checks the limits for one top-up, cash or card. */
     public static void checkTopUp(BigDecimal amount) throws ValidationException {
+        check(amount, "top-up");
+    }
+
+    private static void check(BigDecimal amount, String what) throws ValidationException {
         if (amount == null) {
             throw new ValidationException("Enter an amount.");
         }
@@ -62,7 +71,7 @@ public final class Amounts {
             throw new ValidationException("The amount must be at least $0.01.");
         }
         if (amount.compareTo(MAX_CASH_TOP_UP) > 0) {
-            throw new ValidationException("A single top-up can be at most " + Money.formatUsd(MAX_TOP_UP) + ".");
+            throw new ValidationException("A single " + what + " can be at most " + Money.formatUsd(MAX_TOP_UP) + ".");
         }
     }
 }

@@ -62,4 +62,14 @@ class PhoneNumbersTest {
         ValidationException e = assertThrows(ValidationException.class, () -> PhoneNumbers.normalize(input));
         assertEquals("Phone number is required.", e.getMessage());
     }
+
+    @ParameterizedTest(name = "{0} displays as {1}")
+    @CsvSource(delimiter = '|', value = {
+            "9613123456   | +961 3 123 456",
+            "96170123456  | +961 70 123 456",
+            "15145550100  | +15145550100",
+    })
+    void formatsStoredNumbersForDisplay(String stored, String expected) {
+        assertEquals(expected, PhoneNumbers.format(stored));
+    }
 }

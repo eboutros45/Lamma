@@ -95,4 +95,24 @@ public final class PhoneNumbers {
         }
         return LEBANON_COUNTRY_CODE + national;
     }
+
+    /**
+     * Formats a stored (normalized) number for display: Lebanese numbers as
+     * "+961 3 123 456" / "+961 70 123 456", others as "+" followed by the digits.
+     */
+    public static String format(String normalized) {
+        if (normalized == null) {
+            return "";
+        }
+        if (normalized.startsWith(LEBANON_COUNTRY_CODE)) {
+            String n = normalized.substring(LEBANON_COUNTRY_CODE.length());
+            if (n.length() == 7) {
+                return "+961 " + n.substring(0, 1) + " " + n.substring(1, 4) + " " + n.substring(4);
+            }
+            if (n.length() == 8) {
+                return "+961 " + n.substring(0, 2) + " " + n.substring(2, 5) + " " + n.substring(5);
+            }
+        }
+        return "+" + normalized;
+    }
 }

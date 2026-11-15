@@ -35,7 +35,8 @@ public final class SchemaMigrator {
             "V001__create_users_and_wallets.sql",
             "V002__add_sign_in_lockout_fields.sql",
             "V003__create_wallet_transactions.sql",
-            "V004__add_payment_cards_and_card_top_ups.sql"
+            "V004__add_payment_cards_and_card_top_ups.sql",
+            "V005__add_wallet_transfers.sql"
     );
 
     private final Database database;

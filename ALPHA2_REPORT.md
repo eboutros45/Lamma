@@ -1,14 +1,200 @@
 # LAMMA Alpha 2 — Implementation Report
 
-**Current phase:** P02, Saved Cards & Credit Card Top-Ups. **Awaiting human review.** P03 has not
-been started.
+**Current phase:** P03, Send Money. **Awaiting product-owner review.** P04 has not been started.
+P02 was reviewed and approved by the product owner.
 **Branch:** `alpha2-development`, created from `main` at `b9962d9` (the Alpha 1 baseline, which is
 unchanged).
 **Verification platform:** Linux (Ubuntu 24.04), OpenJDK 21, Maven 3.9, MySQL 8.0.46, JavaFX 21
-on a virtual display. **Nothing has been run on macOS.**
+on a virtual display. **Nothing has been run on macOS or Windows.**
 
 All money in LAMMA is simulated. There is no payment processing, card authorisation, gateway,
 bank connection, cashier or administrator.
+
+---
+
+## P03 — Send Money
+
+### 1. Implemented functionality
+
+- **The dashboard's Send Money tile is now a button.** The flow:
+  1. **Recipient:** enter a phone number in any format accepted at registration and sign-in
+     (the same `PhoneNumbers.normalize`) → **Find Recipient**. A card shows "You are sending to:
+     **Rami Khoury** +961 70 123 456" before you can continue.
+  2. **Amount:** "Sending to …" and "Available balance: $X" (loaded in the background) are shown.
+     The rules are USD, $0.01–$10,000.00, at most 2 decimals; amounts over the shown balance are
+     refused here too.
+  3. **Review:** amount, recipient's full name, formatted phone, "Your available balance", and
+     "This moves simulated funds between LAMMA wallets. No real money is sent." The buttons are
+     **Confirm and Send**, **Back** (edit amount) and **Cancel** (dashboard). Opening the review
+     deducts nothing (verified in the database).
+  4. **Success:** "Money sent", "$60.00 was sent to Rami Khoury.", "New balance: $150.50", and
+     **Back to Dashboard**, which reloads the balance and activity.
+- **Recipient checks:** unknown number ("No LAMMA account uses this phone number…"), invalid
+  number (registration's messages), and own number ("You can't send money to yourself.").
+  **Editing the number after a lookup clears the recipient** and requires a new lookup. A lookup
+  answer that arrives for a number the user has since changed is ignored. The lookup returns only
+  user id, first and last name and phone; there's no PIN, hash or balance (tested).
+- **Recent Activity** (10 newest, unchanged limit):
+  - sender: **Money Sent**, `-$60.00` in red, "To Rami Khoury · date and time", Completed
+  - recipient: **Money Received**, `+$60.00` in green, "From Lina Haddad · date and time",
+    Completed
+- **No fees and no daily limits.** Transfers go only to registered personal users.
+
+### 2. Database changes
+
+**Migration `V005__add_wallet_transfers.sql`**, one `ALTER` of `wallet_transactions`. V001–V004
+are unchanged, and no new table was added.
+
+- **New types:** `TRANSFER_OUT` (must be DEBIT) and `TRANSFER_IN` (must be CREDIT).
+- **`transfer_id` (VARCHAR(36))** links the two rows of one transfer; it is the sender's request
+  id. **UNIQUE (`transfer_id`, `transaction_type`)** allows exactly one sent and one received row
+  per transfer.
+- **`counterparty_wallet_id`** references `wallets` and points at the other wallet.
+- **CHECK:** transfer rows must have both `transfer_id` and `counterparty_wallet_id`, and the
+  counterparty can't be the row's own wallet. All other types must have both empty.
+- **Names aren't copied** into transactions. The history query reads the counterparty's name
+  through `counterparty_wallet_id` → `wallets` → `users`.
+- **Accounting model unchanged:**
+  - `wallets.balance` is authoritative
+  - `wallet_transactions` is the history
+  - nothing is derived from the ledger
+- **Upgrade check:** a database built by the actual P02 code (`995fbe4`) contained two users, a
+  saved card, a cash and a card top-up, and a $40 opening balance not covered by transactions. It
+  upgraded to version 5 with **all balances, transactions and the card byte-for-byte identical**,
+  and no existing row got transfer fields. Re-running changed nothing. A transfer then worked on
+  the upgraded data, and a P02 request id was still honoured.
+- **Real `lamma` database** (P02 data, version 4) upgraded on app launch: "1 migration(s)
+  applied".
+
+### 3. Atomic transfer processing
+
+`TransferService.send(senderUserId, recipientUserId, amount, requestId)` is **one MySQL
+transaction**:
+
+1. **Resolve both PERSONAL wallets.** The sender comes from the session; the recipient's wallet
+   is re-checked, and if it's gone the error is "This recipient can no longer receive money".
+2. **Lock both wallet rows with `SELECT … FOR UPDATE` in ascending `wallet_id` order,** the same
+   order for every transfer, so opposite transfers can't deadlock.
+3. **Idempotency:** if the request id already exists as this sender's `TRANSFER_OUT` to this
+   recipient for this amount, the original result is returned and nothing moves. Reusing an id
+   with other details is rejected.
+4. **Check the sender's actual locked balance:** "Insufficient funds. Your available balance is
+   $X." The recipient's balance limit is also checked.
+5. **Debit the sender,** `UPDATE … balance = balance - ?`.
+6. **Credit the recipient,** `UPDATE … balance = balance + ?`.
+7. **Insert `TRANSFER_OUT`** (sender's request id, `transfer_id`, counterparty = recipient).
+8. **Insert `TRANSFER_IN`** (its own new unique request id, the same `transfer_id`,
+   counterparty = sender).
+9. **Commit all of it,** or roll everything back on any error.
+
+The database's `balance >= 0` and the "one row per side" uniqueness remain as backstops.
+
+**UI protection:**
+- Confirm, Back and Cancel are disabled while sending.
+- One request id is created per review screen and reused on retry, so a retry after a lost
+  response can't send twice.
+- Back to the amount step creates a new id.
+- No success is shown until the database has confirmed.
+- Every result passes the existing "same sign-in and same screen" guard.
+
+### 4. Verification results
+
+| Configuration | Run | Passed | Failed | Skipped |
+|---|---|---|---|---|
+| Baseline at `995fbe4`, before any change (MySQL and display) | 206 | 206 | 0 | 0 |
+| After the shared-code refactor, before any transfer code (MySQL, no display) | 206 | 177 | 0 | 29 (JavaFX) |
+| No MySQL settings, no display | 248 | 111 | 0 | 137 |
+| MySQL settings, no display | 248 | 206 | 0 | 42 |
+| **MySQL settings and a display (virtual display)** | **248** | **248** | **0** | **0** |
+
+Skipped tests did not run and are never counted as passed. There are 95 MySQL integration tests
+and 42 JavaFX UI tests. In the final configuration all 248 executed, including every Alpha 1, P01
+and P02 test.
+
+New tests (42):
+
+| Class | Tests | Needs | Covers |
+|---|---|---|---|
+| `TransferServiceIntegrationTest` | 19 | MySQL | **Lookup:** any phone format; unknown, invalid and self; recipient holds no private data. **Correctness:** money moves and **both linked records** are correct (type, direction, amount, balance after, counterparty and name, same `transfer_id`); sending the whole balance; **money conserved** across several transfers, an unrelated user sees only their own, and each wallet's ledger matches its balance; **persistence after restart**. **Validation:** zero, negative, too large, 3 decimals, null; **insufficient funds**; **balance changed between review and confirmation**; self-transfer by id; **recipient no longer eligible**; recipient balance limit. **Reliability:** **failure on the second record rolls back debit, credit and the first record**; **repeated confirmation**; **retry after a lost response from a new connection**; request id can't be reused with other details or across types; **25 concurrent $10 sends from a $100 wallet → exactly 10 succeed, 15 "Insufficient funds", balance 0, money conserved**; **60 simultaneous opposite transfers between the same two wallets → no deadlock, exact balances, money conserved** |
+| `TransferSchemaIntegrationTest` | 5 | MySQL | valid pair; direction per side; transfer link required for transfers and forbidden otherwise; no self-counterparty; one row per side; counterparty must exist |
+| `SendMoneyFlowTest` | 13 | display | Send Money needs a session; **full flow** (lookup → name and formatted phone → amount with balance → review with no deduction → confirm → success → dashboard "Money Sent · To Rami Khoury · -$25.00"); **recipient view "Money Received · From Lina Haddad · +$25.00"**; lookup errors (unknown, invalid, blank, self); **editing the number clears the recipient**; **late lookup answer for an old number ignored**; amount validation including over-balance; **double click sends once**; **lost response then retry → same request id, debited once**; insufficient funds at confirm → Back → corrected amount gets a new request id; **sign-out during send shows no success**; **account switch during lookup never shows the previous user's result**; Cancel sends nothing |
+| `TransferServiceConnectionFailureTest` | 1 | — | outage messages for lookup and send |
+| `PhoneNumbersTest` (+3), `AmountsTest` (+1) | 4 | — | phone display format; transfer limits and message |
+
+**Proof that the key tests can fail:** each safeguard was temporarily removed and the test
+re-run, then restored.
+
+| Safeguard removed | Result |
+|---|---|
+| Lock the sender's wallet first instead of the lower `wallet_id` | MySQL `Deadlock found`; the opposite-direction test fails |
+| Remove the `FOR UPDATE` row locks | The overspend test fails: overdrafts were rejected only by the database's `balance >= 0` rule, as a generic database error instead of "Insufficient funds" |
+| Remove the "phone changed during lookup" check | The stale-lookup UI test fails |
+
+**Existing tests changed (intended):**
+- `CashTopUpFlowTest`: "Send Money is not clickable" became "Send Money is a button".
+- No other existing test changed. The shared transaction insert and read code was moved, with no
+  behaviour change (same 177 passing before any transfer code was added).
+
+### 5. Manual testing walkthrough (two registered accounts)
+
+This was run on Linux against the real `lamma` database with the real app, across two launches.
+The walkthrough was scripted to drive the real controls and checked the database directly. The
+script is not committed. The accounts were **Lina** (`03 123 456`, $210.50 before) and **Rami**
+(`70 123 456`, $0.00). Total money in all wallets was **$210.50 before and $210.50 after**.
+
+| # | Step | Result |
+|---|---|---|
+| 1 | Launch (database at version 4) | ✅ "1 migration(s) applied", now version 5 |
+| 2 | Lina → Send Money → `03 999 999` | ✅ "No LAMMA account uses this phone number…" |
+| 3 | `+961 3 123 456` (her own) / `7012` | ✅ "You can't send money to yourself." / invalid-number message |
+| 4 | `70 123 456` → Find | ✅ "Rami Khoury / +961 70 123 456" |
+| 5 | Edit the number to `70 123 45` | ✅ recipient card disappears; a new lookup is needed |
+| 6 | `+961 70 123 456` → Continue | ✅ "Sending to Rami Khoury · +961 70 123 456", "Available balance: $210.50" |
+| 7 | Amount `210.51` | ✅ "Insufficient funds. Your available balance is $210.50." |
+| 8 | Amount `60` → review | ✅ "$60.00 to Rami Khoury +961 70 123 456 / Your available balance: $210.50"; **database balance still 210.50** |
+| 9 | Confirm and Send | ✅ "Money sent / $60.00 was sent to Rami Khoury. / New balance: $150.50" |
+| 10 | Lina's dashboard | ✅ $150.50; top row "Money Sent · To Rami Khoury · -$60.00 · Completed" |
+| 11 | Sign out → Rami signs in | ✅ $60.00; "Money Received · From Lina Haddad · +$60.00 · Completed" |
+| 12 | Rami sends $15 to Lina (`03123456`) | ✅ "$15.00 was sent to Lina Haddad. / New balance: $45.00" |
+| 13 | **Restart** → Lina | ✅ sign-in required; $165.50; top row "Money Received · From Rami Khoury · +$15.00" |
+| 14 | Lina → Rami $5.25, **MySQL stopped at Confirm** | ✅ "The transfer could not be completed… no money was sent…", buttons re-enabled |
+| 15 | Start MySQL → Confirm again | ✅ "$5.25 was sent to Rami Khoury. / New balance: $160.25" |
+| 16 | Database | ✅ Lina $160.25 + Rami $50.25 = $210.50; three transfers, each **exactly one OUT and one IN row with the same `transfer_id`** and correct counterparties; the failed attempt left nothing |
+
+**To repeat this by hand** (any OS):
+1. Register two accounts.
+2. Top up the first with cash.
+3. Do steps 2–15 above.
+4. Check both dashboards and that the sum of the two balances is unchanged apart from top-ups.
+
+### 6. Limitations and known issues
+
+**Fixed during P03, found by screenshot:** on the recipient card and review screen, explanatory
+lines were left-aligned under centred titles. They're now centred, on the Send Money screens only.
+
+**Open:**
+- **macOS and Windows not verified.** The README checklist now expects
+  `Tests run: 248 … Skipped: 0` and has a Send Money step. The JavaFX tests need a display; on a
+  headless Linux machine use `xvfb-run`.
+- **The review balance is guidance only.** It's loaded when the amount step opens. The database
+  re-checks at Confirm and shows "Insufficient funds" if it changed.
+- **Recipient lookup reveals registration.** It shows whether a phone number has an account and
+  that person's name, which is inherent to "see the recipient's name before sending". There is no
+  rate limit on lookups; that's acceptable on a single computer, but worth revisiting before any
+  networked use.
+- **Counterparty names are read at display time.** Names can't be edited today; if editing is
+  added later, history would show the current name.
+- **No reversal or cancellation** after completion, as specified.
+- **History** still shows the 10 newest entries only.
+
+### 7. Commit reference
+
+| Item | Value |
+|---|---|
+| Branch | `alpha2-development` (pushed) |
+| Previous commit | `995fbe4` (P02) |
+| P03 commit | the commit that adds this section (hash given in the completion message) |
+| `main` | unchanged at `b9962d9`; nothing merged |
 
 ---
 

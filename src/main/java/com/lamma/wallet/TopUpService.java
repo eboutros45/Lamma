@@ -12,7 +12,6 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
@@ -187,38 +186,10 @@ public class TopUpService {
      * a failure here and check that the balance change is rolled back.
      */
     protected long insertTransaction(Connection conn, WalletTransaction t, String requestId) throws SQLException {
-        String sql = "INSERT INTO wallet_transactions (wallet_id, transaction_type, direction, amount,"
-                + " balance_after, status, card_brand, card_last4, request_id, created_at)"
-                + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        try (PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-            ps.setLong(1, t.walletId());
-            ps.setString(2, t.type());
-            ps.setString(3, t.direction());
-            ps.setBigDecimal(4, t.amount());
-            ps.setBigDecimal(5, t.balanceAfter());
-            ps.setString(6, t.status());
-            ps.setString(7, t.cardBrand());
-            ps.setString(8, t.cardLast4());
-            ps.setString(9, requestId);
-            ps.setObject(10, t.createdAt());
-            ps.executeUpdate();
-            try (ResultSet keys = ps.getGeneratedKeys()) {
-                if (!keys.next()) {
-                    throw new SQLException("The database did not return the new transaction's id.");
-                }
-                return keys.getLong(1);
-            }
-        }
+        return TransactionRecords.insert(conn, t, requestId);
     }
 
     private static WalletTransaction findByRequestId(Connection conn, String requestId) throws SQLException {
-        String sql = "SELECT " + WalletService.TRANSACTION_COLUMNS
-                + " FROM wallet_transactions t WHERE t.request_id = ? FOR UPDATE";
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, requestId);
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() ? WalletService.readTransaction(rs) : null;
-            }
-        }
+        return TransactionRecords.findByRequestId(conn, requestId);
     }
 }

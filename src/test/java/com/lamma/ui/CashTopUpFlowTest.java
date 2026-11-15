@@ -190,9 +190,10 @@ class CashTopUpFlowTest {
     }
 
     @Test
-    void sendMoneyIsStillNotClickable() throws Exception {
+    void dashboardActionsAreButtons() throws Exception {
         signInAndOpenDashboard();
-        assertFalse(lookup("#sendMoneyPreview") instanceof ButtonBase, "Send Money must not be a button");
+        // Alpha 2 P03 enabled Send Money; it is now a working button.
+        assertInstanceOf(ButtonBase.class, lookup("#sendMoneyButton"));
         click("#receiveMoneyButton");
         // Alpha 2 P02 enabled Credit Card Top-Up; it is now a working button.
         assertInstanceOf(ButtonBase.class, lookup("#cardTopUpButton"));

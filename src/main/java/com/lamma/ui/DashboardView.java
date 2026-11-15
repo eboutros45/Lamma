@@ -88,7 +88,7 @@ final class DashboardView extends BorderPane {
         return card;
     }
 
-    /** Receive Money and Payment Methods work; Send Money is a read-only preview (a label, not a button). */
+    /** Receive Money, Payment Methods and Send Money. */
     private HBox actions() {
         Button receive = new Button("Receive Money");
         receive.setId("receiveMoneyButton");
@@ -97,15 +97,11 @@ final class DashboardView extends BorderPane {
         receive.setOnAction(event -> navigator.showReceive());
         HBox.setHgrow(receive, Priority.ALWAYS);
 
-        Label sendTitle = new Label("Send Money");
-        sendTitle.getStyleClass().add("preview-title");
-        Label badge = new Label("Coming Soon");
-        badge.getStyleClass().add("badge");
-        VBox send = new VBox(2, sendTitle, badge);
-        send.setId("sendMoneyPreview");
-        send.setAlignment(Pos.CENTER);
-        send.getStyleClass().add("preview-tile");
+        Button send = new Button("Send Money");
+        send.setId("sendMoneyButton");
+        send.getStyleClass().add("action-button");
         send.setMaxWidth(Double.MAX_VALUE);
+        send.setOnAction(event -> navigator.showSendMoney());
         HBox.setHgrow(send, Priority.ALWAYS);
 
         Button cards = new Button("Payment Methods");

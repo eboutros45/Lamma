@@ -7,7 +7,6 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -35,9 +34,8 @@ public class WalletService {
             "Your recent activity could not be loaded because the database is unavailable. "
             + "Check that MySQL is running, then press Retry.";
 
-    /** Columns read for a transaction; the table is aliased as "t" in every query. */
-    static final String TRANSACTION_COLUMNS = "t.transaction_id, t.wallet_id, t.transaction_type, t.direction,"
-            + " t.amount, t.balance_after, t.status, t.created_at, t.card_brand, t.card_last4";
+    /** Columns read for a transaction; see {@link TransactionRecords#COLUMNS}. */
+    static final String TRANSACTION_COLUMNS = TransactionRecords.COLUMNS;
 
     private final Database database;
 
@@ -111,16 +109,6 @@ public class WalletService {
     }
 
     static WalletTransaction readTransaction(ResultSet rs) throws SQLException {
-        return new WalletTransaction(
-                rs.getLong("transaction_id"),
-                rs.getLong("wallet_id"),
-                rs.getString("transaction_type"),
-                rs.getString("direction"),
-                rs.getBigDecimal("amount"),
-                rs.getBigDecimal("balance_after"),
-                rs.getString("status"),
-                rs.getObject("created_at", LocalDateTime.class),
-                rs.getString("card_brand"),
-                rs.getString("card_last4"));
+        return TransactionRecords.read(rs);
     }
 }

@@ -45,4 +45,14 @@ class AmountsTest {
         assertThrows(ValidationException.class, () -> Amounts.checkCashTopUp(new BigDecimal("1.001")));
         assertThrows(ValidationException.class, () -> Amounts.checkCashTopUp(null));
     }
+
+    @Test
+    void transferLimitsMatchTopUpLimits() throws ValidationException {
+        Amounts.checkTransfer(new BigDecimal("0.01"));
+        Amounts.checkTransfer(new BigDecimal("10000.00"));
+        assertThrows(ValidationException.class, () -> Amounts.checkTransfer(new BigDecimal("0.00")));
+        ValidationException tooMuch = assertThrows(ValidationException.class,
+                () -> Amounts.checkTransfer(new BigDecimal("10000.01")));
+        assertEquals("A single transfer can be at most $10,000.00.", tooMuch.getMessage());
+    }
 }

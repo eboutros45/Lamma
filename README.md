@@ -2,16 +2,17 @@
 
 Simulated digital wallet — local JavaFX desktop application backed by MySQL (via JDBC).
 
-**Current state: Alpha 2 / P02 (saved cards and credit card top-ups),** on branch
+**Current state: Alpha 2 / P03 (Send Money),** on branch
 `alpha2-development`. Alpha 1 (on `main`) lets you register a personal account, sign in, see your
 personal wallet balance and sign out. Alpha 2 adds:
 
 - **Receive Money → Cash Top-Up** (P01)
 - **Credit Card Top-Up**, with a saved or new card (P02)
 - **Payment Methods** to save, rename and remove cards (P02)
+- **Send Money** to another registered LAMMA user by phone number (P03)
 - a **Recent Activity** list
 
-All payments are simulated. Send Money and Business accounts are still "Coming Soon".
+All money is simulated. Business accounts are still "Coming Soon".
 
 > This is a prototype for **simulated money**. The six-digit PIN, PBKDF2 hashing and sign-in lockout
 > are reasonable for that purpose. They are **not** production-grade financial security.
@@ -53,7 +54,7 @@ JavaFX and the MySQL JDBC driver are downloaded by Maven automatically.
    mvn -q compile exec:java
    ```
 
-   Expected output: `OK: Connected to MySQL 8.0.x, database 'lamma', schema version 4 ...`
+   Expected output: `OK: Connected to MySQL 8.0.x, database 'lamma', schema version 5 ...`
 
    > Once a database has been upgraded to version 3 or later, the Alpha 1 app on `main` refuses to start
    > against it ("schema is newer than this application"). If you switch between `main` and
@@ -77,8 +78,8 @@ the **Sign In** screen:
 - **Personal Sign Up**: first name, last name, phone number, PIN and Confirm PIN. When it
   succeeds, you return to Sign In with the phone number filled in.
 - **Dashboard**: shows LAMMA branding, your name, **Personal Wallet** and your balance in USD
-  (e.g. `$0.00`), plus a **Sign Out** button. Below that are **Receive Money** and **Payment
-  Methods** buttons, a read-only "Send Money – Coming Soon" tile, and **Recent Activity**: your 10 newest
+  (e.g. `$0.00`), plus a **Sign Out** button. Below that are **Receive Money**, **Payment
+  Methods** and **Send Money** buttons, and **Recent Activity**: your 10 newest
   transactions with type, amount, date and time, and status. Everything loads in the background.
   If it can't be loaded, a friendly message and a **Retry** button appear.
 - **Receive Money**: **Cash Top-Up** or **Credit Card Top-Up**.
@@ -97,6 +98,17 @@ the **Sign In** screen:
   `Visa •••• 4242 · Expires 08/29`. You can **Rename** (nickname only), **Remove** (with
   confirmation; past top-ups stay in your activity) and **Add Card** (nickname plus card details).
   There is no default card; you choose one each time.
+- **Send Money**:
+  1. Enter the recipient's registered phone number (any accepted format) → **Find Recipient**.
+     Their name and number appear. Editing the number clears the recipient, so you must look
+     them up again.
+  2. **Continue** → amount (your available balance is shown) → **Continue**.
+  3. Review shows the amount, recipient name and number, your balance and "simulated funds
+     between LAMMA wallets". Choose **Confirm and Send**, **Back** or **Cancel**.
+  4. Success shows the amount sent, the recipient and your new balance.
+
+  Errors are shown for unknown numbers, invalid numbers, sending to yourself, invalid amounts
+  and insufficient funds.
 
 ## Run the tests
 
@@ -107,13 +119,13 @@ mvn test
 Two groups of tests are **skipped** unless their environment is available. Maven reports them as
 `Skipped`, not passed:
 
-- **71 MySQL integration tests** run only when `LAMMA_TEST_DB_*` is set (see below).
-- **29 JavaFX UI tests** (`DashboardNavigationTest`, `AsyncNavigationRaceTest`, `CashTopUpFlowTest`,
-  `CardFlowsTest`) need a
+- **95 MySQL integration tests** run only when `LAMMA_TEST_DB_*` is set (see below).
+- **42 JavaFX UI tests** (`DashboardNavigationTest`, `AsyncNavigationRaceTest`, `CashTopUpFlowTest`,
+  `CardFlowsTest`, `SendMoneyFlowTest`) need a
   graphical display. They always run on macOS and Windows; on Linux they need `DISPLAY` (a
   desktop session, or `xvfb-run`). No window is shown.
 
-With neither available, expect `Tests run: 206, Failures: 0, Errors: 0, Skipped: 100`. To run the
+With neither available, expect `Tests run: 248, Failures: 0, Errors: 0, Skipped: 137`. To run the
 MySQL tests, point them at the test database:
 
 ```bash
@@ -122,8 +134,8 @@ LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
 mvn test
 ```
 
-Expect `Skipped: 29` if no display is available (the JavaFX tests), and with a display as well,
-`Tests run: 206, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
+Expect `Skipped: 42` if no display is available (the JavaFX tests), and with a display as well,
+`Tests run: 248, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
 `xvfb-run -a mvn test` (with the variables above).
 
 These tests drop and recreate all tables in that database, so they refuse to run unless the
@@ -135,12 +147,13 @@ database name ends in `_test`.
 JavaFX screens (com.lamma.ui)         StartupView -> SignInView <-> SignUpChoiceView -> PersonalSignUpView
    │  AppNavigator switches screens        └─> DashboardView -> ReceiveView -> CashTopUpView / CardTopUpView
    │                                                         -> PaymentMethodsView -> AddCardView
+   │                                                         -> SendMoneyView
    │                                           (only with an active UserSession; CardForm is shared)
    │  BackgroundWork runs DB calls off the UI thread
    ▼
 Services (com.lamma.auth)             RegistrationService, AuthenticationService, UserSession
    │  PhoneNumbers (normalization), Pins (format), PinHasher (PBKDF2)
-   │      (com.lamma.wallet)          WalletService (wallet + recent activity), TopUpService,
+   │      (com.lamma.wallet)          WalletService (wallet + recent activity), TopUpService, TransferService,
    │                                  Amounts (amount rules), Money (USD format)
    │      (com.lamma.cards)           CardValidator (number/expiry/CVV checks -> CardMetadata),
    │                                  PaymentCardService (saved cards)
@@ -153,13 +166,13 @@ MySQL                                 users, wallets, schema_version
 - `src/main/java/com/lamma/LammaApp.java`: the JavaFX entry point.
 - `src/main/java/com/lamma/ui/`: the screens, plus `src/main/resources/com/lamma/ui/lamma.css`.
 - `src/main/java/com/lamma/auth/`: registration, sign-in, session, phone and PIN rules.
-- `src/main/java/com/lamma/wallet/`: wallet balance, transactions, cash and card top-ups.
+- `src/main/java/com/lamma/wallet/`: wallet balance, transactions, cash and card top-ups, transfers.
 - `src/main/java/com/lamma/cards/`: card validation and saved cards (metadata only).
 - `src/main/java/com/lamma/db/`: the database code (config, connection, migrations, CLI check).
 - `src/main/resources/db/migration/`: versioned schema scripts.
 - `database/create_database.sql`: one-time admin setup (database and user).
 
-## Database schema (version 4)
+## Database schema (version 5)
 
 ### `users` (USER)
 
@@ -193,12 +206,14 @@ will be one DEBIT row plus one CREDIT row.
 |---|---|---|
 | `transaction_id` | BIGINT UNSIGNED, PK, auto-increment | Also gives the order, newest first |
 | `wallet_id` | BIGINT UNSIGNED NOT NULL, FK → `wallets.wallet_id` | A wallet with transactions can't be deleted |
-| `transaction_type` | VARCHAR(30) | `CHECK IN ('CASH_TOP_UP', 'CARD_TOP_UP')`. Later phases widen this |
-| `direction` | VARCHAR(6) | `CREDIT` or `DEBIT`. Top-ups must be a `CREDIT` |
+| `transaction_type` | VARCHAR(30) | `CASH_TOP_UP`, `CARD_TOP_UP`, `TRANSFER_OUT`, `TRANSFER_IN` |
+| `direction` | VARCHAR(6) | `CREDIT` or `DEBIT`. Top-ups and `TRANSFER_IN` are `CREDIT`; `TRANSFER_OUT` is `DEBIT` |
 | `amount` | DECIMAL(15,2) | `CHECK (amount > 0)`. Always positive; the direction gives the sign |
 | `balance_after` | DECIMAL(15,2) | `CHECK (>= 0)`. The wallet balance right after this transaction |
 | `status` | VARCHAR(20) | `CHECK IN ('COMPLETED')`. Later phases may add e.g. `PENDING` |
 | `card_brand`, `card_last4` | VARCHAR(20), CHAR(4), NULL | V004: a copy of the card used. **Required** for `CARD_TOP_UP`, **must be NULL** otherwise. Kept even if the card is removed |
+| `transfer_id` | VARCHAR(36), NULL | V005: shared by the sent and received rows of one transfer. **UNIQUE** (`transfer_id`, `transaction_type`) allows exactly one row per side |
+| `counterparty_wallet_id` | FK → `wallets`, NULL | V005: the other wallet in a transfer (never the row's own wallet). Names are read through it, not copied |
 | `request_id` | VARCHAR(36), **UNIQUE** | One id per confirmation, so a repeated request can't credit twice |
 | `created_at` | DATETIME | Stored in **UTC**, shown in the computer's time zone |
 
@@ -236,6 +251,7 @@ first.
 | 2 | `V002__add_sign_in_lockout_fields.sql` | `users.failed_pin_attempts`, `users.locked_until` (P02) |
 | 3 | `V003__create_wallet_transactions.sql` | `wallet_transactions` (Alpha 2 P01) |
 | 4 | `V004__add_payment_cards_and_card_top_ups.sql` | `payment_cards`; `CARD_TOP_UP` with card snapshot columns (Alpha 2 P02) |
+| 5 | `V005__add_wallet_transfers.sql` | `TRANSFER_OUT` / `TRANSFER_IN`, `transfer_id`, `counterparty_wallet_id` (Alpha 2 P03) |
 
 When adding a table that references `users`, `wallets`, `wallet_transactions` or `payment_cards`, also add it to
 the `DROP TABLE` lists in `src/test/java/com/lamma/testsupport/TestDatabase.java` and
@@ -316,6 +332,25 @@ Repeated credits are blocked at three levels:
 - The request id, created once per review screen, is reused if you retry after an error and
   replaced if you edit the amount. So even a retry after a timeout credits at most once.
 
+## Send Money: transfer integrity
+
+`TransferService.send` is **one MySQL transaction**:
+
+1. Both wallets are locked with `SELECT … FOR UPDATE`, **always in ascending `wallet_id` order**,
+   so opposite transfers (A→B and B→A) can't deadlock.
+2. If this request id was already processed, the earlier result is returned and nothing moves
+   twice. This also covers a retry after the app lost the database's answer.
+3. The recipient's wallet and the sender's **current** balance are checked again. The balance
+   shown on the review screen is only guidance.
+4. The sender is debited, the recipient credited, and both rows inserted (`TRANSFER_OUT` +
+   `TRANSFER_IN`, same `transfer_id`).
+5. All four changes are committed together, or all rolled back.
+
+- The sender is always the signed-in user (from the session). The recipient comes from a phone
+  lookup that returns only their user id, name and phone.
+- The database's `balance >= 0` rule stays as a last line of defence against overdrafts.
+- No fees, no daily limit; $0.01–$10,000.00 per transfer.
+
 ## Card data handling
 
 LAMMA processes **no real payments**. There is no gateway, authorisation or bank connection.
@@ -356,10 +391,10 @@ mysql -u root < database/create_database.sql
 cp config/database.properties.example config/database.properties   # then set db.password
 
 # 3. Verify
-mvn -q compile exec:java         # expect: OK: Connected to MySQL ... schema version 4
+mvn -q compile exec:java         # expect: OK: Connected to MySQL ... schema version 5
 LAMMA_TEST_DB_URL='jdbc:mysql://localhost:3306/lamma_test' \
 LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
-mvn test                         # expect: Tests run: 206, Failures: 0, Errors: 0, Skipped: 0
+mvn test                         # expect: Tests run: 248, Failures: 0, Errors: 0, Skipped: 0
 
 # 4. Run and try it
 mvn javafx:run
@@ -384,3 +419,9 @@ Manual check in the app:
    - the dashboard shows "Card Top-Up · Visa •••• 4242"
    - Payment Methods lists the card, and Rename and Remove work
    - the next card top-up offers the saved card
+8. Send Money from the first account to the second (e.g. `70 123 456`).
+   - The recipient's name appears before you continue.
+   - The review shows name, number, amount and your balance.
+   - After **Confirm and Send**, both dashboards show the new balances.
+   - Recent Activity shows "Money Sent · To …" for the sender and "Money Received · From …" for
+     the recipient.
