@@ -16,6 +16,7 @@ import java.util.concurrent.Callable;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.layout.HBox;
@@ -280,31 +281,64 @@ final class SharedWalletDetailView extends VBox {
         name.getStyleClass().add("activity-type");
         name.setMinWidth(0);
         HBox.setHgrow(name, Priority.ALWAYS);
-        Label role = new Label(m.role().displayName());
-        role.setId("memberRole-" + m.userId());
-        role.getStyleClass().add("badge");
+        // The role: a fixed badge, except the Owner's view of other members, which gets a dropdown.
+        boolean editable = viewerIsOwner && m.role() != MemberRole.OWNER;
+        Node role;
+        ComboBox<MemberRole> choice = null;
+        if (editable) {
+            choice = new ComboBox<>(javafx.collections.FXCollections.observableArrayList(
+                    MemberRole.CONTRIBUTOR, MemberRole.SPENDER));
+            choice.setId("roleChoice-" + m.userId());
+            choice.setValue(m.role());
+            choice.setConverter(new javafx.util.StringConverter<>() {
+                @Override
+                public String toString(MemberRole r) {
+                    return r == null ? "" : r.displayName();
+                }
+
+                @Override
+                public MemberRole fromString(String text) {
+                    return null; // not editable as text
+                }
+            });
+            choice.setMinWidth(Region.USE_PREF_SIZE);
+            choice.setAccessibleText("Role of " + m.fullName());
+            role = choice;
+        } else {
+            Label badge = new Label(m.role().displayName());
+            badge.setId("memberRole-" + m.userId());
+            badge.getStyleClass().add("badge");
+            role = badge;
+        }
         HBox row = new HBox(12, Screens.avatar(m.firstName(), m.lastName(), false), name, role);
         row.setAlignment(Pos.CENTER_LEFT);
         VBox box = new VBox(6, row);
         box.getStyleClass().add("activity-row");
 
-        if (viewerIsOwner && m.role() != MemberRole.OWNER) {
-            MemberRole other = m.role() == MemberRole.SPENDER ? MemberRole.CONTRIBUTOR : MemberRole.SPENDER;
-            Button changeRole = new Button("Make " + other.displayName());
-            changeRole.setId("changeRole-" + m.userId());
+        if (editable) {
             Button remove = new Button("Remove");
             remove.setId("removeMember-" + m.userId());
-            HBox actions = new HBox(8, Screens.keepWidth(changeRole), Screens.keepWidth(remove));
+            HBox actions = new HBox(8, Screens.keepWidth(remove));
             actions.setAlignment(Pos.CENTER_RIGHT);
             box.getChildren().add(actions);
             long ownerId = user.userId();
-            String roleQuestion = other == MemberRole.SPENDER
-                    ? "Make " + m.firstName() + " a Spender? Spenders will also be able to send money out of this wallet."
-                    : "Make " + m.firstName() + " a Contributor? Contributors can add money but not send it out.";
-            changeRole.setOnAction(event -> confirm(actions, roleQuestion, "Make " + other.displayName(), false, () -> {
-                navigator.membershipService().changeRole(ownerId, walletId, m.userId(), other);
-                return m.firstName() + " is now a " + other.displayName() + ".";
-            }));
+            ComboBox<MemberRole> roles = choice;
+            roles.valueProperty().addListener((obs, before, chosen) -> {
+                if (chosen == null || chosen == m.role()) {
+                    return; // back to the saved role (e.g. after Cancel): nothing to confirm
+                }
+                String question = chosen == MemberRole.SPENDER
+                        ? "Make " + m.firstName() + " a Spender? Spenders will also be able to send money out of this wallet."
+                        : "Make " + m.firstName() + " a Contributor? Contributors can add money but not send it out.";
+                roles.setDisable(true);
+                confirm(actions, question, "Make " + chosen.displayName(), false, () -> {
+                    navigator.membershipService().changeRole(ownerId, walletId, m.userId(), chosen);
+                    return m.firstName() + " is now a " + chosen.displayName() + ".";
+                }, () -> {
+                    roles.setDisable(false);
+                    roles.setValue(m.role()); // cancelled: show the saved role again
+                });
+            });
             remove.setOnAction(event -> confirm(actions, "Remove " + m.fullName()
                     + " from this wallet? They'll lose access right away.", "Remove", true, () -> {
                 navigator.membershipService().removeMember(ownerId, walletId, m.userId());
@@ -394,6 +428,11 @@ final class SharedWalletDetailView extends VBox {
      * then runs in the background; the screen reloads from the database afterwards.
      */
     private void confirm(HBox area, String question, String confirmText, boolean danger, Callable<String> action) {
+        confirm(area, question, confirmText, danger, action, () -> { });
+    }
+
+    private void confirm(HBox area, String question, String confirmText, boolean danger, Callable<String> action,
+                         Runnable onCancel) {
         Node[] previous = area.getChildren().toArray(new Node[0]);
         Label text = new Label(question);
         text.setWrapText(true);
@@ -403,7 +442,10 @@ final class SharedWalletDetailView extends VBox {
         yes.setId("confirmMemberAction");
         yes.getStyleClass().add(danger ? "danger-button" : "primary-button");
         Button no = Screens.linkButton("Cancel", "cancelMemberAction");
-        no.setOnAction(event -> area.getChildren().setAll(previous));
+        no.setOnAction(event -> {
+            area.getChildren().setAll(previous);
+            onCancel.run();
+        });
         yes.setOnAction(event -> act(yes, action));
         area.getChildren().setAll(text, Screens.keepWidth(yes), Screens.keepWidth(no));
     }

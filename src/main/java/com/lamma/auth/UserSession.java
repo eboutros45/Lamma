@@ -31,7 +31,20 @@ public final class UserSession {
         return user != null && currentUser == user;
     }
 
-    public Optional<AuthenticatedUser> currentUser() {
+    /**
+     * After the user changes their own name or phone number: the same sign-in continues with the
+     * updated details. Only applies if {@code before} is still the active sign-in (otherwise
+     * nothing changes and false is returned).
+     */
+    public boolean replace(AuthenticatedUser before, AuthenticatedUser updated) {
+        if (!isCurrent(before) || updated == null || updated.userId() != before.userId()) {
+            return false;
+        }
+        currentUser = updated;
+        return true;
+    }
+
+        public Optional<AuthenticatedUser> currentUser() {
         return Optional.ofNullable(currentUser);
     }
 }

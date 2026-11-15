@@ -121,7 +121,7 @@ final class SendMoneyView extends VBox {
         Button cancel = cancelButton();
         getChildren().setAll(Screens.title("Who are you paying?"),
                 centeredHint("Enter the registered phone number of the LAMMA user you want to pay."),
-                phoneField, find, message, card, cancel);
+                phoneField, ContactSuggestions.attach(phoneField, navigator, user), find, message, card, cancel);
         Platform.runLater(phoneField::requestFocus);
     }
 

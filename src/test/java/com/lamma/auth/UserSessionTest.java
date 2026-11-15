@@ -50,4 +50,19 @@ class UserSessionTest {
         assertFalse(session.isCurrent(first), "an earlier sign-in of the same person is also stale");
         assertTrue(session.isCurrent(firstAgain));
     }
+
+    @Test
+    void replaceKeepsTheSignInWithUpdatedDetailsOnlyForTheCurrentUser() {
+        UserSession session = new UserSession();
+        AuthenticatedUser lina = new AuthenticatedUser(1, "Lina", "Haddad", "9613123456");
+        AuthenticatedUser renamed = new AuthenticatedUser(1, "Lina-Maria", "Haddad", "9613123456");
+        assertFalse(session.replace(lina, renamed), "nobody signed in");
+        session.signIn(lina);
+        assertFalse(session.replace(lina, new AuthenticatedUser(2, "Rami", "Khoury", "96170123456")),
+                "can't become someone else");
+        assertTrue(session.replace(lina, renamed));
+        assertTrue(session.isCurrent(renamed));
+        assertFalse(session.isCurrent(lina), "views built for the old details are stale");
+        assertFalse(session.replace(lina, renamed), "a stale sign-in can't replace the current one");
+    }
 }

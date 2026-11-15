@@ -523,3 +523,22 @@
     -fx-background-insets: 0;
     -fx-padding: 5;
 }
+
+/* ---------- Contact suggestions under phone fields (P04A) ---------- */
+.contact-suggestions {
+    -fx-padding: 6;
+    -fx-background-color: -lamma-surface;
+    -fx-border-color: -lamma-border;
+    -fx-border-radius: 10;
+    -fx-background-radius: 10;
+}
+.suggestion-button {
+    -fx-alignment: center-left;
+    -fx-background-color: transparent;
+    -fx-text-fill: -lamma-text;
+    -fx-background-radius: 8;
+    -fx-padding: 6 10;
+}
+.suggestion-button:hover, .suggestion-button:focused {
+    -fx-background-color: -lamma-primary-soft;
+}

@@ -1,6 +1,7 @@
 package com.lamma.ui;
 
 import com.lamma.auth.AuthenticatedUser;
+import com.lamma.auth.AccountService;
 import com.lamma.auth.AuthenticationService;
 import com.lamma.auth.PinHasher;
 import com.lamma.auth.RegistrationService;
@@ -8,6 +9,7 @@ import com.lamma.auth.UserSession;
 import com.lamma.cards.PaymentCardService;
 import com.lamma.db.Database;
 import com.lamma.ui.AppShell.Destination;
+import com.lamma.contacts.ContactService;
 import com.lamma.wallet.SharedWalletFundsService;
 import com.lamma.wallet.SharedWalletMembershipService;
 import com.lamma.wallet.SharedWalletService;
@@ -52,6 +54,8 @@ public final class AppNavigator {
     private SharedWalletService sharedWalletService;
     private SharedWalletMembershipService membershipService;
     private SharedWalletFundsService fundsService;
+    private AccountService accountService;
+    private ContactService contactService;
 
     /** Normal start-up: shows the startup screen, which connects to the database. */
     public AppNavigator(Stage stage) {
@@ -121,6 +125,8 @@ public final class AppNavigator {
         this.sharedWalletService = new SharedWalletService(database);
         this.membershipService = new SharedWalletMembershipService(database);
         this.fundsService = new SharedWalletFundsService(database);
+        this.accountService = new AccountService(database, pinHasher);
+        this.contactService = new ContactService(database);
         showSignIn("", "");
     }
 
@@ -181,9 +187,36 @@ public final class AppNavigator {
     }
 
     void showProfile() {
+        showProfile("");
+    }
+
+    /** Profile, with an optional success message (e.g. after changing a setting). */
+    void showProfile(String notice) {
         if (requireSession()) {
-            showDestination(new ProfileView(this, user()), Destination.PROFILE, true);
+            showDestination(new ProfileView(this, user(), notice), Destination.PROFILE, true);
         }
+    }
+
+    /** Edit name, change phone number or change PIN; Back returns to Profile. */
+    void showAccountSettings(AccountSettingsView.Mode mode) {
+        if (requireSession()) {
+            showFlow(new AccountSettingsView(this, user(), mode), mode.title(), () -> showProfile(""), true);
+        }
+    }
+
+    /** The user's contact book (import, search, delete); Back returns to Profile. */
+    void showContacts() {
+        if (requireSession()) {
+            showFlow(new ContactsView(this, user()), "Contacts", () -> showProfile(""), true);
+        }
+    }
+
+    /**
+     * The signed-in user changed their own name or phone number: the same sign-in continues with
+     * the new details. Ignored if that sign-in has ended meanwhile.
+     */
+    boolean accountUpdated(AuthenticatedUser before, AuthenticatedUser updated) {
+        return session.replace(before, updated);
     }
 
     // ---------- actions (shown with a Back button) ----------
@@ -360,6 +393,24 @@ public final class AppNavigator {
     /** For automated UI tests: supplies the shared-wallet money service. */
     void useFundsService(SharedWalletFundsService service) {
         this.fundsService = service;
+    }
+
+    AccountService accountService() {
+        return accountService;
+    }
+
+    /** For automated UI tests: supplies the account settings service. */
+    void useAccountService(AccountService service) {
+        this.accountService = service;
+    }
+
+    ContactService contactService() {
+        return contactService;
+    }
+
+    /** For automated UI tests: supplies the contact book service. */
+    void useContactService(ContactService service) {
+        this.contactService = service;
     }
 
     // ---------- internals ----------

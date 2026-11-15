@@ -21,11 +21,13 @@ import com.lamma.cards.PaymentCardService;
 import com.lamma.db.Database;
 import com.lamma.testsupport.TestDatabase;
 import com.lamma.wallet.InvitationCodes;
+import com.lamma.wallet.MemberRole;
 import com.lamma.wallet.SharedWalletMembershipService;
 import com.lamma.wallet.SharedWalletService;
 import com.lamma.wallet.TopUpService;
 import com.lamma.wallet.TransferService;
 import com.lamma.wallet.WalletService;
+import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
@@ -34,6 +36,7 @@ import javafx.application.Platform;
 import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.control.ButtonBase;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.Labeled;
 import javafx.scene.control.TextInputControl;
@@ -124,21 +127,28 @@ class SharedWalletMembershipFlowTest {
         waitUntil(() -> "You: Contributor".equals(text("#myRoleBadge")));
         assertNull(lookup("#inviteMemberButton"), "no Owner tools for a Contributor");
         assertNull(lookup("#shareQrButton"));
-        assertNull(lookup("#changeRole-" + lina.userId()));
+        assertNull(lookup("#roleChoice-" + rami.userId()), "no role dropdowns for a Contributor");
+        assertNull(lookup("#roleChoice-" + lina.userId()));
         assertNotNull(lookup("#leaveWalletButton"));
         assertEquals("Owner", text("#memberRole-" + lina.userId()));
 
         // Owner promotes Rami (with confirmation).
         switchTo(lina);
         openWallet();
-        click("#changeRole-" + rami.userId());
+        assertEquals("Owner", text("#memberRole-" + lina.userId()), "the Owner's role is fixed (no dropdown)");
+        assertNull(lookup("#roleChoice-" + lina.userId()));
+        assertEquals(List.of("Contributor", "Spender"), roleOptions(rami.userId()));
+        assertEquals("Contributor", roleShown(rami.userId()));
+        chooseRole(rami.userId(), MemberRole.SPENDER);
         assertTrue(screenText().contains("Make Rami a Spender?"));
         click("#cancelMemberAction");
-        assertEquals("Contributor", text("#memberRole-" + rami.userId()), "cancelled: nothing changed");
-        click("#changeRole-" + rami.userId());
+        assertEquals("Contributor", roleShown(rami.userId()), "cancelled: back to the saved role");
+        assertEquals(MemberRole.CONTRIBUTOR, shared.details(rami.userId(), trip).wallet().myRole());
+        chooseRole(rami.userId(), MemberRole.SPENDER);
         click("#confirmMemberAction");
-        waitUntil(() -> "Spender".equals(text("#memberRole-" + rami.userId())));
-        assertEquals("Rami is now a Spender.", text("#memberActionMessage"));
+        waitUntil(() -> "Rami is now a Spender.".equals(text("#memberActionMessage")));
+        assertEquals("Spender", roleShown(rami.userId()), "the reloaded list shows the saved role");
+        assertEquals(MemberRole.SPENDER, shared.details(rami.userId(), trip).wallet().myRole());
 
         // Rami sees the new role, then leaves (with confirmation) and loses access.
         switchTo(rami);
@@ -191,7 +201,7 @@ class SharedWalletMembershipFlowTest {
         waitUntil(() -> lookup("#joinRequestsList") != null);
         assertTrue(textUnder("#joinRequestsList").contains("Nour Saad"));
         clickFirst("approveRequest-");
-        waitUntil(() -> "Contributor".equals(text("#memberRole-" + nour.userId())));
+        waitUntil(() -> "Contributor".equals(roleShown(nour.userId())));
         assertNull(lookup("#joinRequestsList"), "request handled");
         assertEquals("Contributor", shared.details(nour.userId(), trip).wallet().myRole().displayName());
 
@@ -199,7 +209,7 @@ class SharedWalletMembershipFlowTest {
         click("#removeMember-" + nour.userId());
         assertTrue(screenText().contains("Remove Nour Saad from this wallet?"));
         click("#confirmMemberAction");
-        waitUntil(() -> lookup("#memberRole-" + nour.userId()) == null);
+        waitUntil(() -> lookup("#roleChoice-" + nour.userId()) == null);
         assertNotAMember(nour);
     }
 
@@ -242,6 +252,36 @@ class SharedWalletMembershipFlowTest {
         image.getPixelReader().getPixels(0, 0, w, h, javafx.scene.image.PixelFormat.getIntArgbInstance(), argb, 0, w);
         return new QRCodeReader().decode(new BinaryBitmap(new HybridBinarizer(new RGBLuminanceSource(w, h, argb))))
                 .getText();
+    }
+
+    /** The role as shown: the Owner's dropdown, or the badge for everyone else. */
+    @SuppressWarnings("unchecked")
+    private String roleShown(long userId) {
+        Node choice = lookup("#roleChoice-" + userId);
+        if (choice == null) {
+            return text("#memberRole-" + userId);
+        }
+        try {
+            return onFx(() -> ((ComboBox<MemberRole>) choice).getValue().displayName());
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> roleOptions(long userId) throws Exception {
+        Node choice = lookup("#roleChoice-" + userId);
+        return onFx(() -> ((ComboBox<MemberRole>) choice).getItems().stream().map(MemberRole::displayName).toList());
+    }
+
+    @SuppressWarnings("unchecked")
+    private void chooseRole(long userId, MemberRole role) throws Exception {
+        Node choice = lookup("#roleChoice-" + userId);
+        assertNotNull(choice, "no role dropdown for " + userId);
+        onFx(() -> {
+            ((ComboBox<MemberRole>) choice).setValue(role);
+            return null;
+        });
     }
 
     private void signIn(AuthenticatedUser u) throws Exception {

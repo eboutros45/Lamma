@@ -1,10 +1,10 @@
 # LAMMA Shared Wallets — Implementation Report
 
-**Current phase:** P03, Shared Wallet Financial Operations. **Awaiting user review.** P04 (shared
-expenses) has not been started.
-**Branch:** `alpha2-development` (P01 is `909efdd`, P02 is `bafb4fe`). `main` is unchanged.
+**Current phase:** P04, in three checkpoints: P04A (account settings and contacts), P04B (gift
+wallets), P04C (shared expenses). Each has its own section and commit below.
+**Branch:** `alpha2-development` (P01 `909efdd`, P02 `bafb4fe`, P03 `84ca5d1`). `main` is unchanged.
 **Verification platform:** Linux (Ubuntu 24.04), OpenJDK 21, Maven 3.9, MySQL 8.0.46, JavaFX 21
-on a virtual display. **Nothing in P01, P02 or P03 has been run on Windows or macOS.**
+on a virtual display. **Nothing in P01–P04 has been run on Windows or macOS.**
 
 ---
 
@@ -629,5 +629,156 @@ Verified on Linux only. Please run this on Windows with two accounts, A (Owner) 
 |---|---|
 | Branch | `alpha2-development` (pushed) |
 | Previous commit | `bafb4fe` (Shared Wallet P02) |
-| P03 commit | the commit that adds this section (hash given in the completion message) |
+| P03 commit | `84ca5d1` |
 | `main` | unchanged; nothing merged |
+
+---
+
+## P04A — UX, Account Settings & Contacts
+
+### 1. Summary of changes
+
+**Role dropdown.**
+- On the shared wallet screen, the Owner sees a dropdown (Contributor / Spender) on every
+  member's row instead of the "Make Spender / Make Contributor" button. The Owner's own row shows
+  a fixed "Owner" badge, and other members see badges only.
+- Choosing a different role shows the inline confirmation ("Make Rami a Spender? …").
+  - Confirm saves the change and reloads the list from the database.
+  - Cancel puts the dropdown back to the saved role.
+- The service checks are unchanged: Owner only, Contributor ↔ Spender only.
+
+**Account settings (Profile → Account).**
+- **Edit name:** first and last name, with the same rules as registration. The same sign-in
+  continues with the new name (`UserSession.replace`), so Home and Profile show it at once.
+- **Change phone number:** needs the current PIN. The number is validated and normalized as at
+  sign-up; numbers used by another account (UNIQUE in the database) or the same number are
+  refused. Afterwards you sign in with the new number; the old one no longer works.
+- **Change PIN:** needs the current PIN, then the new 6-digit PIN twice; it must differ from the
+  current one. Only a new salted PBKDF2 hash is stored.
+- **Re-authentication:** a wrong current PIN counts towards the **same 5-try lockout as sign-in**
+  and is saved even though the change is refused. After 5 wrong PINs, both changes and sign-in
+  are blocked for 5 minutes, so the settings screens can't be used to guess a PIN. PINs are typed
+  in password fields, cleared after a failure, and never shown.
+- **Forgotten PIN: not implemented (blocked).** LAMMA stores no verified email address and has no
+  SMS service, so there is no second channel to prove who someone is. A recovery based only on
+  the phone number or on personal details would let anyone who knows a number take over the
+  account. This needs an OTP/SMS or email service first. No placeholder control was added.
+- **Theme:** unchanged. No other settings were added; there are no other user preferences to set.
+
+**Contacts (Profile → Contacts).**
+- **Import CSV or vCard (.vcf)** via a file chooser:
+  - CSV: header or no header, comma or semicolon, quoted fields, and Google/Outlook column
+    names (First/Last Name, "Phone 1 - Value").
+  - vCard: FN or N, the first TEL line, and folded lines.
+  - Limits: up to 1 MB and 2,000 contacts per file.
+- **Import feedback:** "2 contacts imported, 1 already saved or repeated (skipped), 1 could not be
+  imported", followed by the reason for each entry ("Line 4 (Broken): Phone number may only
+  contain …").
+- **Duplicates:** numbers already in the book, or repeated in the file (in any written form, e.g.
+  `70 123 456` and `+961 70 123 456`), are skipped and the existing entry kept.
+  UNIQUE (owner, number) in the database backs this.
+- **Managing contacts:** search by name, or by number in any written form (`70 12`, `070123`,
+  `+961 70`). Delete asks for confirmation.
+- **Private:** every query is limited to the session's user. Another user can neither list nor
+  delete them (tested).
+- **Suggestions in recipient fields:** personal Send Money, shared wallet Send Money and Invite
+  Member.
+  - Typing part of a name or number lists up to 5 matches under the field.
+  - Choosing one **only fills the phone field**. The user then presses Find / Send Invitation as
+    before, so the registered-user lookup and every check still apply. A contact without a LAMMA
+    account is refused ("No LAMMA account uses this phone number", tested).
+- **Not included:** no operating-system or cloud contact sync.
+
+### 2. Schema (V009) and the LDM
+
+| Change | Columns | Why |
+|---|---|---|
+| `contacts` (new) | `contact_id`, `owner_user_id` → users, `display_name` (≤100), `phone_number` (normalized, same CHECK as `users`), `created_at`; UNIQUE (`owner_user_id`, `phone_number`) | The LDM has no contact entity. This is the minimum: contacts belong to one user and are not linked to `users` rows (a contact isn't an account) |
+
+No other schema changes. Name, phone and PIN changes use the existing `users` columns, and the
+lockout uses the V002 columns.
+
+**Files**
+- New: `V009__add_contacts.sql`, `auth/AccountService`, `contacts/ContactFiles`,
+  `contacts/ContactService`, `ui/AccountSettingsView`, `ui/ContactsView`, `ui/ContactSuggestions`.
+- Changed: `UserSession` (+ `replace`), `ProfileView` (Account and Contacts cards, notices),
+  `SharedWalletDetailView` (role dropdown), `SendMoneyView`, `SharedTransferView`,
+  `InviteMemberView` (suggestions), `AppNavigator`, `SchemaMigrator`, `lamma.css` (suggestion
+  styles), and the test database helpers (drop `contacts`).
+
+### 3. Build and test results
+
+| Configuration | Run | Passed | Failed | Skipped |
+|---|---|---|---|---|
+| Baseline at `84ca5d1` (P03), MySQL and display | 332 | 332 | 0 | 0 |
+| No MySQL settings, no display | 350 | 131 | 0 | 219 |
+| MySQL settings, no display | 350 | 284 | 0 | 66 |
+| **MySQL settings and a display (virtual display)** | **350** | **350** | **0** | **0** |
+
+New tests (18):
+
+| Class | Tests | Needs | Covers |
+|---|---|---|---|
+| `AccountServiceIntegrationTest` | 5 | MySQL | Name validated, trimmed and saved, and sign-in still works. Phone change: wrong PIN, number taken by another account, same number, invalid number and PIN format are all refused with nothing changed; after a change the new number signs in and the old one doesn't. PIN change: wrong current PIN, mismatch, same PIN and bad formats refused; the hash changes, never contains the PIN and is PBKDF2; old PIN refused, new PIN accepted. **5 wrong PINs lock changes and sign-in**, even with the right PIN, until the lock expires (simulated clock); a correct PIN resets the counter |
+| `ContactServiceIntegrationTest` | 4 | MySQL | Import with valid, duplicate (written differently), no-name, invalid, ambiguous and missing-phone entries, each reported; re-import adds nothing; vCard import; empty and unrecognised files refused. **Privacy**: another user can't list or delete them, while the same number in another user's book is fine. Search by name, by number in several written forms, and with a limit |
+| `ContactFilesTest` | 6 | — | CSV without a header, columns in any order, quoted fields and escaped quotes, Google/Outlook headers, semicolons, a header without a phone column; vCard with parameters, folded lines, N vs FN, `tel:` URIs, a card without a phone, an incomplete card, a BOM; format detected from content |
+| `UserSessionTest` (+1) | 1 | — | `replace` works only for the current sign-in and the same user id; views built for the old details become stale |
+| `AccountAndContactsFlowTest` | 2 | MySQL + display | Real screens: edit name (shown on Profile and Home, same sign-in); change phone (taken number, then wrong PIN with the PIN field cleared, then success); change PIN (mismatch, then success; no PIN is shown on screen; sign-in uses the new PIN). Contacts: import a file (summary and per-line reasons), search, re-import (all skipped). **Suggestions** in Send Money (choose → number filled → Find shows the registered user), in Invite Member (a contact without an account is refused by the normal lookup) and in shared Send Money; delete with confirmation |
+
+**Existing tests changed:** `SharedWalletMembershipFlowTest` now uses the role dropdown, and
+checks that Cancel restores the saved role and the database value. A first version waited for
+the dropdown's own value, which shows the new role before it is saved; it now waits for the
+saved confirmation.
+
+**Problems found and fixed during verification**
+- **Suggestions missing for text typed early:** text typed before the contacts had loaded showed
+  no suggestions unless the field had focus. The full GUI run caught it; suggestions now refresh
+  when the contacts arrive, and the test then passed three runs in a row.
+- **Cut-off descriptions:** setting descriptions on Profile were cut with "…" on narrow windows;
+  they now wrap.
+
+**Migration check:** the real `lamma` database (users, wallets, transfers, shared wallets) was
+upgraded to version 9 on launch. Only the new table was added; existing rows are untouched,
+because V009 only creates a table.
+
+**Real app on Linux:** Lina's Profile (light, wide; dark, compact) showed the Account and Contacts
+cards.
+- Importing a 3-line CSV gave 2 contacts and 1 reported error.
+- Send Money suggested "Rami Khoury · +961 70 123 456" for "Ram".
+- Change Phone with Rami's number showed "Another LAMMA account already uses this phone number".
+- The dev database now holds those two contacts for Lina.
+- No PIN or phone number was actually changed on the real accounts.
+
+### 4. Known limitations
+
+1. **No forgotten-PIN recovery:** it needs an SMS/OTP or verified-email service (see §1).
+2. **Theme** is still saved per computer, not per user.
+3. **Search** compares contacts in memory, which is fine for personal contact books (up to a few
+   thousand entries).
+4. **Duplicates:** a contact whose number is already saved keeps its existing name, and the import
+   doesn't offer to rename it.
+5. **CSV encoding:** files are read as UTF-8. Files saved in other encodings may show wrong
+   accented characters.
+
+### 5. Windows manual-testing steps
+
+1. `git pull`, then `mvn -q compile exec:java` → `… schema version 9 (1 migration(s) applied now)`.
+2. `mvn test` (with the `LAMMA_TEST_DB_*` variables) → `Tests run: 350, Failures: 0, Errors: 0, Skipped: 0`.
+3. Profile → Name **Edit** → change it → Profile and Home show the new name.
+4. Profile → Phone number **Change** → another account's number → refused; a wrong PIN → refused
+   and the PIN field cleared; a new number with the right PIN → sign out and sign in with it.
+5. Profile → PIN **Change** → mismatch refused → change it → sign in with the new PIN.
+6. Profile → Contacts → **Import Contacts** → choose a `.csv` (e.g. `Name,Phone` /
+   `Rami,70 123 456` / `Bad,12ab`) and a `.vcf` exported from a phone → check the summary,
+   search, then Delete one.
+7. Send Money → type part of a contact's name → choose the suggestion → **Find Recipient**.
+   Repeat in a shared wallet's Send Money and in Invite Member.
+8. As Owner: a member's role dropdown → Spender → Cancel (nothing changes) → Spender → Confirm.
+9. Light/Dark and narrow/wide: the dropdowns, suggestions and settings forms stay readable.
+
+### 6. Commit
+
+| Item | Value |
+|---|---|
+| Branch | `alpha2-development` (pushed) |
+| P04A commit | the commit that adds this section (hash given in the completion message) |

@@ -12,11 +12,22 @@ import javafx.scene.control.ToggleGroup;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 
-/** Profile: account details, appearance (System / Light / Dark) and Sign Out. */
+/**
+ * Profile: account details and settings (name, phone number, PIN), contacts, appearance
+ * (System / Light / Dark) and Sign Out.
+ */
 final class ProfileView extends VBox {
 
     ProfileView(AppNavigator navigator, AuthenticatedUser user) {
+        this(navigator, user, "");
+    }
+
+    ProfileView(AppNavigator navigator, AuthenticatedUser user, String notice) {
         getStyleClass().add("screen");
+        Label message = Screens.message("profileMessage");
+        if (notice != null && !notice.isEmpty()) {
+            Screens.showSuccess(message, notice);
+        }
 
         Label name = new Label(user.firstName() + " " + user.lastName());
         name.setId("profileNameLabel");
@@ -56,6 +67,20 @@ final class ProfileView extends VBox {
                         + "Your choice is saved on this computer."));
         appearance.getStyleClass().add("card");
 
+        VBox account = new VBox(4, Screens.sectionTitle("Account"),
+                settingRow("Name", user.firstName() + " " + user.lastName(), "Edit", "editNameButton",
+                        () -> navigator.showAccountSettings(AccountSettingsView.Mode.NAME)),
+                settingRow("Phone number", PhoneNumbers.format(user.phoneNumber()), "Change", "changePhoneButton",
+                        () -> navigator.showAccountSettings(AccountSettingsView.Mode.PHONE)),
+                settingRow("PIN", "Used to sign in and to confirm account changes", "Change", "changePinButton",
+                        () -> navigator.showAccountSettings(AccountSettingsView.Mode.PIN)));
+        account.getStyleClass().add("card");
+
+        VBox contacts = new VBox(4, Screens.sectionTitle("Contacts"),
+                settingRow("Contact book", "Import contacts to fill in phone numbers faster", "Manage",
+                        "manageContactsButton", navigator::showContacts));
+        contacts.getStyleClass().add("card");
+
         VBox about = new VBox(6, Screens.sectionTitle("About"),
                 Screens.hint("LAMMA Alpha 2. All money in LAMMA is simulated; no real payments are made."));
         about.getStyleClass().add("card");
@@ -66,9 +91,28 @@ final class ProfileView extends VBox {
         signOut.setMaxWidth(Double.MAX_VALUE);
         signOut.setOnAction(event -> navigator.signOut());
 
-        for (VBox card : new VBox[] {appearance, about}) {
+        for (VBox card : new VBox[] {account, contacts, appearance, about}) {
             card.setMaxWidth(Double.MAX_VALUE);
         }
-        getChildren().addAll(identity, appearance, about, signOut);
+        getChildren().addAll(identity, message, account, contacts, appearance, about, signOut);
+    }
+
+    /** "Label / value" on the left, an action button on the right. */
+    private static HBox settingRow(String label, String value, String action, String id, Runnable onAction) {
+        Label title = new Label(label);
+        title.getStyleClass().add("activity-type");
+        Label detail = Screens.caption(value);
+        detail.getStyleClass().add("hint");
+        detail.setWrapText(true);
+        VBox texts = new VBox(2, title, detail);
+        texts.setMinWidth(0);
+        javafx.scene.layout.HBox.setHgrow(texts, javafx.scene.layout.Priority.ALWAYS);
+        Button button = new Button(action);
+        button.setId(id);
+        button.setOnAction(event -> onAction.run());
+        HBox row = new HBox(12, texts, Screens.keepWidth(button));
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.getStyleClass().add("activity-row");
+        return row;
     }
 }

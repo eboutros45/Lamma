@@ -179,7 +179,8 @@ final class SharedTransferView extends VBox {
         getChildren().setAll(Screens.title("Who are you paying?"),
                 centeredHint("Money goes from the shared wallet “" + overview.walletName()
                         + "” to the Personal Wallet of any registered LAMMA user. Enter their phone number."),
-                phoneField, find, message, card, cancelButton());
+                phoneField, ContactSuggestions.attach(phoneField, navigator, user), find, message, card,
+                cancelButton());
         Platform.runLater(phoneField::requestFocus);
     }
 

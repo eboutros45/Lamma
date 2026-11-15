@@ -20,6 +20,10 @@ personal wallet balance and sign out. Alpha 2 adds:
   Wallet; the Owner and Spenders can also **Withdraw** to their own Personal Wallet and **Send
   Money** from the shared wallet to any registered user. Every member sees the shared wallet's
   history. Shared expenses come in a later phase.
+- **Account settings and contacts** (P04A): edit your name, change your phone number or PIN (both
+  need your current PIN), and import a private contact book from CSV or vCard files. Contacts
+  are suggested under every recipient phone field. The Owner changes a member's role with a
+  dropdown.
 
 All money is simulated. Business accounts are still "Coming Soon".
 
@@ -67,7 +71,7 @@ JavaFX and the MySQL JDBC driver are downloaded by Maven automatically.
    mvn -q compile exec:java
    ```
 
-   Expected output: `OK: Connected to MySQL 8.0.x, database 'lamma', schema version 8 ...`
+   Expected output: `OK: Connected to MySQL 8.0.x, database 'lamma', schema version 9 ...`
 
    > Once a database has been upgraded to version 3 or later, the Alpha 1 app on `main` refuses to start
    > against it ("schema is newer than this application"). If you switch between `main` and
@@ -138,6 +142,18 @@ the **Sign In** screen:
   The smallest window is 380×600.
 - **Actions** (Send Money, Add Money, cash and card top-ups, Add Card, wallet details) open with a
   **Back** button that returns to where you started.
+- **Profile → Account:** edit your first and last name; change your phone number (the one you
+  sign in with) or your PIN. Both need your current PIN, and wrong PINs count towards the same
+  5-try lockout as sign-in. PINs are only stored as salted PBKDF2 hashes and are never shown.
+  **Forgotten PIN:** there is no self-service recovery. LAMMA has no verified email address or
+  SMS service with which to prove who you are, and a recovery without one would let anyone who
+  knows a phone number take over the account.
+- **Profile → Contacts:** import a CSV file (name and phone columns; Google and Outlook exports
+  work) or a vCard (.vcf) file. Numbers already saved or repeated in the file are skipped, and
+  invalid entries are listed with the reason. Contacts are private to you and are not LAMMA
+  accounts. Typing part of a name or number in a recipient field (Send Money, shared wallet Send
+  Money, Invite Member) suggests matching contacts; choosing one only fills in the number, which
+  is then looked up as usual.
 - **Theme:** Profile → Appearance → **System** (default), **Light** or **Dark**. The change applies
   immediately and is saved on this computer with Java's `Preferences` (the registry on Windows, a
   plist on macOS, `~/.java` on Linux).
@@ -159,15 +175,16 @@ mvn test
 Two groups of tests are **skipped** unless their environment is available. Maven reports them as
 `Skipped`, not passed:
 
-- **144 MySQL integration tests** run only when `LAMMA_TEST_DB_*` is set (see below).
-- **64 JavaFX UI tests** (`DashboardNavigationTest`, `AsyncNavigationRaceTest`, `CashTopUpFlowTest`,
+- **153 MySQL integration tests** run only when `LAMMA_TEST_DB_*` is set (see below).
+- **66 JavaFX UI tests** (`DashboardNavigationTest`, `AsyncNavigationRaceTest`, `CashTopUpFlowTest`,
   `CardFlowsTest`, `SendMoneyFlowTest`, `AppShellNavigationTest`, `SharedWalletFlowTest`,
-  `SharedWalletMembershipFlowTest`, `SharedWalletFundsFlowTest`) need a
+  `SharedWalletMembershipFlowTest`, `SharedWalletFundsFlowTest`, `AccountAndContactsFlowTest`) need a
   graphical display. They always run on macOS and Windows; on Linux they need `DISPLAY` (a
-  desktop session, or `xvfb-run`). No window is shown. `SharedWalletMembershipFlowTest` (3 tests) and
-  `SharedWalletFundsFlowTest` (2) need MySQL as well and are counted here.
+  desktop session, or `xvfb-run`). No window is shown. `SharedWalletMembershipFlowTest` (3 tests),
+  `SharedWalletFundsFlowTest` (2) and `AccountAndContactsFlowTest` (2) need MySQL as well and are
+  counted here.
 
-With neither available, expect `Tests run: 332, Failures: 0, Errors: 0, Skipped: 208`. To run the
+With neither available, expect `Tests run: 350, Failures: 0, Errors: 0, Skipped: 219`. To run the
 MySQL tests, point them at the test database:
 
 ```bash
@@ -176,8 +193,8 @@ LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
 mvn test
 ```
 
-Expect `Skipped: 64` if no display is available (the JavaFX tests), and with a display as well,
-`Tests run: 332, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
+Expect `Skipped: 66` if no display is available (the JavaFX tests), and with a display as well,
+`Tests run: 350, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
 `xvfb-run -a mvn test` (with the variables above).
 
 These tests drop and recreate all tables in that database, so they refuse to run unless the
@@ -214,7 +231,7 @@ MySQL                                 users, wallets, schema_version
 - `src/main/resources/db/migration/`: versioned schema scripts.
 - `database/create_database.sql`: one-time admin setup (database and user).
 
-## Database schema (version 8)
+## Database schema (version 9)
 
 ### `users` (USER)
 
@@ -342,6 +359,13 @@ wallet it enters. Both carry the same `transfer_id`, point at each other through
 - Each wallet's history shows one row per operation (its own side). History rows for shared
   transfers show a short reference: the first 8 characters of the transfer id.
 
+### `contacts` (V009)
+
+Each user's own contact book: `contact_id`, `owner_user_id` (FK → `users`), `display_name`
+(≤100), `phone_number` (normalized like `users.phone_number`), `created_at`. UNIQUE
+(`owner_user_id`, `phone_number`) means one entry per number per user, so importing a file twice
+adds nothing. Every query filters by the session's user id.
+
 ### `payment_cards` (Alpha 2 P02)
 
 Saved cards hold **metadata only**. There is no column for the card number or CVV.
@@ -380,9 +404,10 @@ first.
 | 6 | `V006__add_shared_wallets.sql` | `wallets.name`, `wallets.status`, type `SHARED`, `shared_wallets`, `shared_wallet_members` (Shared Wallet P01) |
 | 7 | `V007__add_shared_wallet_invitations.sql` | `shared_wallets.invite_token`, `shared_wallet_invitations`, `shared_wallet_join_requests` (Shared Wallet P02) |
 | 8 | `V008__add_shared_wallet_transfers.sql` | `wallet_transactions.transfer_kind`, `wallet_transactions.initiated_by_user_id` (Shared Wallet P03) |
+| 9 | `V009__add_contacts.sql` | `contacts` (P04A) |
 
 When adding a table that references `users`, `wallets`, `wallet_transactions`, `payment_cards`, `shared_wallets`, `shared_wallet_members`, `shared_wallet_invitations` or
-`shared_wallet_join_requests`, also add it to
+`shared_wallet_join_requests` or `contacts`, also add it to
 the `DROP TABLE` lists in `src/test/java/com/lamma/testsupport/TestDatabase.java` and
 `SchemaConstraintsIntegrationTest`, child tables first.
 
@@ -520,10 +545,10 @@ mysql -u root < database/create_database.sql
 cp config/database.properties.example config/database.properties   # then set db.password
 
 # 3. Verify
-mvn -q compile exec:java         # expect: OK: Connected to MySQL ... schema version 8
+mvn -q compile exec:java         # expect: OK: Connected to MySQL ... schema version 9
 LAMMA_TEST_DB_URL='jdbc:mysql://localhost:3306/lamma_test' \
 LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
-mvn test                         # expect: Tests run: 332, Failures: 0, Errors: 0, Skipped: 0
+mvn test                         # expect: Tests run: 350, Failures: 0, Errors: 0, Skipped: 0
 
 # 4. Run and try it
 mvn javafx:run

@@ -35,7 +35,7 @@ final class InviteMemberView extends VBox {
         getChildren().addAll(Screens.title("Invite a member"),
                 Screens.hint("They need a LAMMA account. They'll see the invitation under Wallets and join as a "
                         + "Contributor if they accept."),
-                field, message, send, done);
+                field, ContactSuggestions.attach(phone, navigator, user), message, send, done);
         Platform.runLater(phone::requestFocus);
     }
 
