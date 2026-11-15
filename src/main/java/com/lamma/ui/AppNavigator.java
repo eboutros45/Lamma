@@ -5,6 +5,7 @@ import com.lamma.auth.AuthenticationService;
 import com.lamma.auth.PinHasher;
 import com.lamma.auth.RegistrationService;
 import com.lamma.auth.UserSession;
+import com.lamma.cards.PaymentCardService;
 import com.lamma.db.Database;
 import com.lamma.wallet.TopUpService;
 import com.lamma.wallet.WalletService;
@@ -25,6 +26,7 @@ public final class AppNavigator {
     private AuthenticationService authenticationService;
     private WalletService walletService;
     private TopUpService topUpService;
+    private PaymentCardService paymentCardService;
 
     /** Normal start-up: shows the startup screen, which connects to the database. */
     public AppNavigator(Stage stage) {
@@ -41,7 +43,14 @@ public final class AppNavigator {
     /** For automated UI tests, including the top-up screens. */
     AppNavigator(Stage stage, RegistrationService registration, AuthenticationService authentication,
                  WalletService wallets, TopUpService topUps) {
+        this(stage, registration, authentication, wallets, topUps, null);
+    }
+
+    /** For automated UI tests, including the card screens. */
+    AppNavigator(Stage stage, RegistrationService registration, AuthenticationService authentication,
+                 WalletService wallets, TopUpService topUps, PaymentCardService cards) {
         this.scene = createScene(stage);
+        this.paymentCardService = cards;
         this.registrationService = registration;
         this.authenticationService = authentication;
         this.walletService = wallets;
@@ -64,6 +73,7 @@ public final class AppNavigator {
         this.authenticationService = new AuthenticationService(database, pinHasher);
         this.walletService = new WalletService(database);
         this.topUpService = new TopUpService(database);
+        this.paymentCardService = new PaymentCardService(database);
         showSignIn("", "");
     }
 
@@ -112,6 +122,33 @@ public final class AppNavigator {
         show(new CashTopUpView(this, session.currentUser().orElseThrow()));
     }
 
+    /** Credit card top-up flow (signed-in users only). */
+    void showCardTopUp() {
+        if (!session.isSignedIn()) {
+            showSignIn("", "");
+            return;
+        }
+        show(new CardTopUpView(this, session.currentUser().orElseThrow()));
+    }
+
+    /** Saved cards (signed-in users only). */
+    void showPaymentMethods(String notice) {
+        if (!session.isSignedIn()) {
+            showSignIn("", "");
+            return;
+        }
+        show(new PaymentMethodsView(this, session.currentUser().orElseThrow(), notice));
+    }
+
+    /** Add a card to Payment Methods (signed-in users only). */
+    void showAddCard() {
+        if (!session.isSignedIn()) {
+            showSignIn("", "");
+            return;
+        }
+        show(new AddCardView(this, session.currentUser().orElseThrow()));
+    }
+
     void signOut() {
         session.signOut();
         showSignIn("", "You have signed out.");
@@ -144,6 +181,10 @@ public final class AppNavigator {
 
     TopUpService topUpService() {
         return topUpService;
+    }
+
+    PaymentCardService paymentCardService() {
+        return paymentCardService;
     }
 
     private void show(Parent screen) {

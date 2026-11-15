@@ -11,8 +11,10 @@ import java.math.RoundingMode;
 public final class Amounts {
 
     public static final BigDecimal MIN_AMOUNT = new BigDecimal("0.01");
-    /** Largest single cash top-up (simulated). */
-    public static final BigDecimal MAX_CASH_TOP_UP = new BigDecimal("10000.00");
+    /** Largest single top-up, cash or card (simulated). */
+    public static final BigDecimal MAX_TOP_UP = new BigDecimal("10000.00");
+    /** Kept for existing callers; same limit as {@link #MAX_TOP_UP}. */
+    public static final BigDecimal MAX_CASH_TOP_UP = MAX_TOP_UP;
     /** Largest value a DECIMAL(15,2) balance column can hold. */
     public static final BigDecimal MAX_BALANCE = new BigDecimal("9999999999999.99");
 
@@ -43,8 +45,13 @@ public final class Amounts {
         return new BigDecimal(text).setScale(2, RoundingMode.UNNECESSARY);
     }
 
-    /** Checks the limits for one cash top-up. */
+    /** Checks the limits for one cash top-up (same rules as any top-up). */
     public static void checkCashTopUp(BigDecimal amount) throws ValidationException {
+        checkTopUp(amount);
+    }
+
+    /** Checks the limits for one top-up, cash or card. */
+    public static void checkTopUp(BigDecimal amount) throws ValidationException {
         if (amount == null) {
             throw new ValidationException("Enter an amount.");
         }
@@ -55,7 +62,7 @@ public final class Amounts {
             throw new ValidationException("The amount must be at least $0.01.");
         }
         if (amount.compareTo(MAX_CASH_TOP_UP) > 0) {
-            throw new ValidationException("A single cash top-up can be at most " + Money.formatUsd(MAX_CASH_TOP_UP) + ".");
+            throw new ValidationException("A single top-up can be at most " + Money.formatUsd(MAX_TOP_UP) + ".");
         }
     }
 }

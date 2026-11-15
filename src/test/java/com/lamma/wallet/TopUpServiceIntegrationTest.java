@@ -119,8 +119,7 @@ class TopUpServiceIntegrationTest {
     void failureWritingTheTransactionRollsBackTheBalance() throws Exception {
         TopUpService failing = new TopUpService(database, CLOCK) {
             @Override
-            protected long insertTransaction(Connection conn, long walletId, BigDecimal amount,
-                                             BigDecimal balanceAfter, String requestId, LocalDateTime createdAt)
+            protected long insertTransaction(Connection conn, WalletTransaction t, String requestId)
                     throws SQLException {
                 throw new SQLException("Simulated failure after the balance update");
             }

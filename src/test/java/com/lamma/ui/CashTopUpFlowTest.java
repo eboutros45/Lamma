@@ -190,13 +190,12 @@ class CashTopUpFlowTest {
     }
 
     @Test
-    void unavailableOptionsAreNotClickable() throws Exception {
+    void sendMoneyIsStillNotClickable() throws Exception {
         signInAndOpenDashboard();
         assertFalse(lookup("#sendMoneyPreview") instanceof ButtonBase, "Send Money must not be a button");
         click("#receiveMoneyButton");
-        Node card = lookup("#cardTopUpPreview");
-        assertInstanceOf(Label.class, card, "Credit Card Top-Up is a label, not a button");
-        assertTrue(((Label) card).getText().contains("Coming Soon"));
+        // Alpha 2 P02 enabled Credit Card Top-Up; it is now a working button.
+        assertInstanceOf(ButtonBase.class, lookup("#cardTopUpButton"));
     }
 
     // ---- helpers ----

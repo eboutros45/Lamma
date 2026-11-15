@@ -88,7 +88,7 @@ final class DashboardView extends BorderPane {
         return card;
     }
 
-    /** Receive Money works; Send Money is a read-only preview (a label, not a button). */
+    /** Receive Money and Payment Methods work; Send Money is a read-only preview (a label, not a button). */
     private HBox actions() {
         Button receive = new Button("Receive Money");
         receive.setId("receiveMoneyButton");
@@ -101,14 +101,28 @@ final class DashboardView extends BorderPane {
         sendTitle.getStyleClass().add("preview-title");
         Label badge = new Label("Coming Soon");
         badge.getStyleClass().add("badge");
-        HBox send = new HBox(8, sendTitle, badge);
+        VBox send = new VBox(2, sendTitle, badge);
         send.setId("sendMoneyPreview");
         send.setAlignment(Pos.CENTER);
         send.getStyleClass().add("preview-tile");
         send.setMaxWidth(Double.MAX_VALUE);
         HBox.setHgrow(send, Priority.ALWAYS);
 
-        return new HBox(12, receive, send);
+        Button cards = new Button("Payment Methods");
+        cards.setId("paymentMethodsButton");
+        cards.getStyleClass().add("secondary-action-button");
+        cards.setMaxWidth(Double.MAX_VALUE);
+        cards.setOnAction(event -> navigator.showPaymentMethods(""));
+        HBox.setHgrow(cards, Priority.ALWAYS);
+
+        // Equal widths: each action gets a third of the row instead of its natural text width.
+        for (Region action : new Region[] {receive, cards, send}) {
+            action.setPrefWidth(0);
+            action.setMinHeight(44);
+        }
+        HBox row = new HBox(10, receive, cards, send);
+        row.setAlignment(Pos.CENTER);
+        return row;
     }
 
     private VBox recentActivity() {
@@ -168,7 +182,7 @@ final class DashboardView extends BorderPane {
     private static HBox activityRow(WalletTransaction t) {
         Label type = new Label(TransactionLabels.type(t));
         type.getStyleClass().add("activity-type");
-        Label when = Screens.hint(TransactionLabels.dateTime(t.createdAt()));
+        Label when = Screens.hint(TransactionLabels.details(t));
         VBox left = new VBox(2, type, when);
 
         Label amount = new Label(TransactionLabels.signedAmount(t));

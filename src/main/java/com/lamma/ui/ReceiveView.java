@@ -6,7 +6,7 @@ import javafx.scene.control.Label;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 
-/** Receive Money: Cash Top-Up (available) or Credit Card Top-Up (Coming Soon, not clickable). */
+/** Receive Money: Cash Top-Up or Credit Card Top-Up (both simulated). */
 final class ReceiveView extends VBox {
 
     ReceiveView(AppNavigator navigator) {
@@ -17,9 +17,10 @@ final class ReceiveView extends VBox {
         cash.getStyleClass().add("choice-button");
         cash.setOnAction(event -> navigator.showCashTopUp());
 
-        Label card = new Label("Credit Card Top-Up\nComing Soon");
-        card.setId("cardTopUpPreview");
-        card.getStyleClass().add("choice-unavailable");
+        Button card = new Button("Credit Card Top-Up");
+        card.setId("cardTopUpButton");
+        card.getStyleClass().add("choice-button");
+        card.setOnAction(event -> navigator.showCardTopUp());
 
         HBox choices = new HBox(16, cash, card);
         choices.setAlignment(Pos.CENTER);

@@ -33,6 +33,7 @@ final class Screens {
         Label label = new Label(text);
         label.getStyleClass().add("hint");
         label.setWrapText(true);
+        label.setMaxWidth(520); // long hints wrap instead of being cut off with "..."
         return label;
     }
 

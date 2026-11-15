@@ -101,7 +101,7 @@
     -fx-background-color: #1f5fbf;
     -fx-text-fill: white;
     -fx-font-weight: bold;
-    -fx-font-size: 15px;
+    -fx-font-size: 14px;
     -fx-pref-height: 44;
     -fx-background-radius: 10;
     -fx-cursor: hand;
@@ -118,9 +118,10 @@
     -fx-border-color: #d9dde3;
     -fx-border-radius: 4;
 }
-.activity-scroll {
+.activity-scroll, .activity-scroll:focused {
     -fx-background-color: transparent;
     -fx-background: transparent;
+    -fx-background-insets: 0;
     -fx-padding: 0;
 }
 .activity-row {
@@ -140,4 +141,50 @@
 .amount-debit {
     -fx-text-fill: #b00020;
     -fx-font-weight: bold;
+}
+
+/* ---- Payment Methods and card top-ups (Alpha 2 P02) ---- */
+.secondary-action-button {
+    -fx-background-color: white;
+    -fx-text-fill: #1f5fbf;
+    -fx-border-color: #1f5fbf;
+    -fx-border-radius: 10;
+    -fx-background-radius: 10;
+    -fx-font-weight: bold;
+    -fx-font-size: 14px;
+    -fx-pref-height: 44;
+    -fx-cursor: hand;
+}
+.payment-methods {
+    -fx-alignment: top-center;
+}
+.card-row {
+    -fx-background-color: white;
+    -fx-background-radius: 8;
+    -fx-padding: 10 12;
+}
+.card-nickname {
+    -fx-font-weight: bold;
+    -fx-font-size: 15px;
+    /* Explicit colour: inside the transparent ScrollPane the theme's computed text colour is unreadable. */
+    -fx-text-fill: #1f2328;
+}
+.card-choice {
+    -fx-background-color: white;
+    -fx-background-radius: 8;
+    -fx-border-color: #d9dde3;
+    -fx-border-radius: 8;
+    -fx-padding: 8 12;
+    -fx-cursor: hand;
+}
+.card-choice:hover, .card-choice:focused {
+    -fx-border-color: #1f5fbf;
+}
+.danger-button {
+    -fx-background-color: #b00020;
+    -fx-text-fill: white;
+}
+
+#sendMoneyPreview {
+    -fx-padding: 4 8;
 }

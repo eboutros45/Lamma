@@ -37,7 +37,7 @@ public class WalletService {
 
     /** Columns read for a transaction; the table is aliased as "t" in every query. */
     static final String TRANSACTION_COLUMNS = "t.transaction_id, t.wallet_id, t.transaction_type, t.direction,"
-            + " t.amount, t.balance_after, t.status, t.created_at";
+            + " t.amount, t.balance_after, t.status, t.created_at, t.card_brand, t.card_last4";
 
     private final Database database;
 
@@ -119,6 +119,8 @@ public class WalletService {
                 rs.getBigDecimal("amount"),
                 rs.getBigDecimal("balance_after"),
                 rs.getString("status"),
-                rs.getObject("created_at", LocalDateTime.class));
+                rs.getObject("created_at", LocalDateTime.class),
+                rs.getString("card_brand"),
+                rs.getString("card_last4"));
     }
 }

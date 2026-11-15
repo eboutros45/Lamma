@@ -1,6 +1,9 @@
 package com.lamma.wallet;
 
 import com.lamma.auth.ValidationException;
+import com.lamma.cards.CardMetadata;
+import com.lamma.cards.PaymentCardService;
+import com.lamma.cards.SavedCard;
 import com.lamma.db.Database;
 import com.lamma.db.DatabaseException;
 import java.math.BigDecimal;
@@ -12,10 +15,12 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.temporal.ChronoUnit;
 
 /**
- * Simulated cash top-ups into the signed-in user's PERSONAL wallet.
+ * Simulated top-ups into the signed-in user's PERSONAL wallet: cash, a saved card, or a new
+ * card. No real money moves and no card is ever charged or authorised.
  *
  * <p>Each top-up is one database transaction:
  * <ol>
@@ -23,11 +28,15 @@ import java.time.temporal.ChronoUnit;
  *       wait for each other instead of overwriting the balance;</li>
  *   <li>if this {@code requestId} was already processed, return that earlier result
  *       (a repeated click or retry never credits twice);</li>
- *   <li>add the amount to the balance and insert the transaction record;</li>
+ *   <li>for a saved card, load it with {@code card_id = ? AND user_id = ?} (only the user's
+ *       own cards) and check it has not expired;</li>
+ *   <li>add the amount to the balance and insert the transaction record (for card top-ups,
+ *       with a copy of the card's brand and last four digits);</li>
  *   <li>commit both together, or roll both back on any failure.</li>
  * </ol>
  * The wallet is found from the user id in the session, never from a wallet id supplied by
- * the screen.
+ * the screen. Card top-ups receive only {@link CardMetadata}; full card numbers and CVVs
+ * never reach this class.
  */
 public class TopUpService {
 
@@ -38,8 +47,10 @@ public class TopUpService {
             "This top-up was already submitted with different details. Please start a new top-up.";
     static final String BALANCE_LIMIT_MESSAGE =
             "This top-up would take your balance above the maximum the wallet can hold.";
+    static final String CARD_EXPIRED_MESSAGE =
+            "This card has expired. Choose another card or use a new card.";
 
-    /** Result of {@link #cashTopUp}; {@code alreadyProcessed} is true for a repeated request. */
+    /** Result of a top-up; {@code alreadyProcessed} is true for a repeated request. */
     public record TopUpResult(WalletTransaction transaction, boolean alreadyProcessed) {
     }
 
@@ -58,7 +69,28 @@ public class TopUpService {
 
     public TopUpResult cashTopUp(long userId, BigDecimal amount, String requestId)
             throws ValidationException, DatabaseException {
-        Amounts.checkCashTopUp(amount);
+        return topUp(userId, amount, requestId, WalletTransaction.TYPE_CASH_TOP_UP, null, null);
+    }
+
+    /** Simulated payment with one of the user's saved cards. */
+    public TopUpResult savedCardTopUp(long userId, long cardId, BigDecimal amount, String requestId)
+            throws ValidationException, DatabaseException {
+        return topUp(userId, amount, requestId, WalletTransaction.TYPE_CARD_TOP_UP, cardId, null);
+    }
+
+    /** Simulated payment with a card just entered (already validated; metadata only). */
+    public TopUpResult newCardTopUp(long userId, CardMetadata card, BigDecimal amount, String requestId)
+            throws ValidationException, DatabaseException {
+        if (card == null) {
+            throw new IllegalArgumentException("card is required");
+        }
+        return topUp(userId, amount, requestId, WalletTransaction.TYPE_CARD_TOP_UP, null, card);
+    }
+
+    private TopUpResult topUp(long userId, BigDecimal amount, String requestId, String type,
+                              Long savedCardId, CardMetadata newCard)
+            throws ValidationException, DatabaseException {
+        Amounts.checkTopUp(amount);
         BigDecimal cents = amount.setScale(2, RoundingMode.UNNECESSARY);
         if (requestId == null || requestId.isBlank() || requestId.length() > 36) {
             throw new IllegalArgumentException("requestId must be 1-36 characters");
@@ -73,7 +105,7 @@ public class TopUpService {
         try (conn) {
             conn.setAutoCommit(false);
             try {
-                TopUpResult result = topUp(conn, userId, cents, requestId);
+                TopUpResult result = topUpInTransaction(conn, userId, cents, requestId, type, savedCardId, newCard);
                 conn.commit();
                 return result;
             } catch (SQLException | RuntimeException | ValidationException | DatabaseException e) {
@@ -85,7 +117,8 @@ public class TopUpService {
         }
     }
 
-    private TopUpResult topUp(Connection conn, long userId, BigDecimal amount, String requestId)
+    private TopUpResult topUpInTransaction(Connection conn, long userId, BigDecimal amount, String requestId,
+                                           String type, Long savedCardId, CardMetadata newCard)
             throws SQLException, ValidationException, DatabaseException {
         long walletId;
         BigDecimal balance;
@@ -103,15 +136,29 @@ public class TopUpService {
             }
         }
 
+        // Idempotency comes first: a retry of a completed top-up returns the original result,
+        // even if the saved card was removed in the meantime.
         WalletTransaction earlier = findByRequestId(conn, requestId);
         if (earlier != null) {
             boolean sameRequest = earlier.walletId() == walletId
-                    && WalletTransaction.TYPE_CASH_TOP_UP.equals(earlier.type())
+                    && type.equals(earlier.type())
                     && earlier.amount().compareTo(amount) == 0;
             if (!sameRequest) {
                 throw new ValidationException(REQUEST_REUSED_MESSAGE);
             }
             return new TopUpResult(earlier, true);
+        }
+
+        CardMetadata card = newCard;
+        if (savedCardId != null) {
+            SavedCard saved = PaymentCardService.findOwnedCard(conn, userId, savedCardId);
+            if (saved == null) {
+                throw new ValidationException(PaymentCardService.NOT_FOUND_MESSAGE);
+            }
+            card = saved.details();
+        }
+        if (card != null && card.isExpired(YearMonth.now(clock))) {
+            throw new ValidationException(CARD_EXPIRED_MESSAGE);
         }
 
         BigDecimal newBalance = balance.add(amount);
@@ -126,29 +173,34 @@ public class TopUpService {
             ps.executeUpdate();
         }
         LocalDateTime now = LocalDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS);
-        long transactionId = insertTransaction(conn, walletId, amount, newBalance, requestId, now);
-        return new TopUpResult(new WalletTransaction(transactionId, walletId, WalletTransaction.TYPE_CASH_TOP_UP,
-                WalletTransaction.CREDIT, amount, newBalance, WalletTransaction.STATUS_COMPLETED, now), false);
+        WalletTransaction record = new WalletTransaction(0, walletId, type, WalletTransaction.CREDIT, amount,
+                newBalance, WalletTransaction.STATUS_COMPLETED, now,
+                card == null ? null : card.brand().name(), card == null ? null : card.last4());
+        long transactionId = insertTransaction(conn, record, requestId);
+        return new TopUpResult(new WalletTransaction(transactionId, walletId, type, WalletTransaction.CREDIT,
+                amount, newBalance, WalletTransaction.STATUS_COMPLETED, now, record.cardBrand(), record.cardLast4()),
+                false);
     }
 
     /**
-     * Inserts the transaction record. Protected only so a test can simulate a failure here
-     * and check that the balance change is rolled back.
+     * Inserts the transaction record and returns its id. Protected only so a test can simulate
+     * a failure here and check that the balance change is rolled back.
      */
-    protected long insertTransaction(Connection conn, long walletId, BigDecimal amount, BigDecimal balanceAfter,
-                                     String requestId, LocalDateTime createdAt) throws SQLException {
-        String sql = "INSERT INTO wallet_transactions"
-                + " (wallet_id, transaction_type, direction, amount, balance_after, status, request_id, created_at)"
-                + " VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+    protected long insertTransaction(Connection conn, WalletTransaction t, String requestId) throws SQLException {
+        String sql = "INSERT INTO wallet_transactions (wallet_id, transaction_type, direction, amount,"
+                + " balance_after, status, card_brand, card_last4, request_id, created_at)"
+                + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         try (PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-            ps.setLong(1, walletId);
-            ps.setString(2, WalletTransaction.TYPE_CASH_TOP_UP);
-            ps.setString(3, WalletTransaction.CREDIT);
-            ps.setBigDecimal(4, amount);
-            ps.setBigDecimal(5, balanceAfter);
-            ps.setString(6, WalletTransaction.STATUS_COMPLETED);
-            ps.setString(7, requestId);
-            ps.setObject(8, createdAt);
+            ps.setLong(1, t.walletId());
+            ps.setString(2, t.type());
+            ps.setString(3, t.direction());
+            ps.setBigDecimal(4, t.amount());
+            ps.setBigDecimal(5, t.balanceAfter());
+            ps.setString(6, t.status());
+            ps.setString(7, t.cardBrand());
+            ps.setString(8, t.cardLast4());
+            ps.setString(9, requestId);
+            ps.setObject(10, t.createdAt());
             ps.executeUpdate();
             try (ResultSet keys = ps.getGeneratedKeys()) {
                 if (!keys.next()) {

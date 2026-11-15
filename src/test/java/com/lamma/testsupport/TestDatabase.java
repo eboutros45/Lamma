@@ -32,6 +32,7 @@ public final class TestDatabase {
                 throw new IllegalStateException("Refusing to wipe non-test database: " + conn.getCatalog());
             }
             st.execute("DROP TABLE IF EXISTS wallet_transactions");
+            st.execute("DROP TABLE IF EXISTS payment_cards");
             st.execute("DROP TABLE IF EXISTS wallets");
             st.execute("DROP TABLE IF EXISTS users");
             st.execute("DROP TABLE IF EXISTS schema_version");
