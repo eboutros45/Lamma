@@ -96,7 +96,17 @@ class AppShellNavigationTest {
                 return List.of();
             }
         };
-        navigator = onFx(() -> new AppNavigator(new Stage(), null, null, wallets, null, cards, null, theme));
+        com.lamma.wallet.SharedWalletService sharedWallets = new com.lamma.wallet.SharedWalletService(null) {
+            @Override
+            public List<com.lamma.wallet.SharedWallet.Summary> listForMember(long userId) {
+                return List.of();
+            }
+        };
+        navigator = onFx(() -> {
+            AppNavigator n = new AppNavigator(new Stage(), null, null, wallets, null, cards, null, theme);
+            n.useSharedWalletService(sharedWallets);
+            return n;
+        });
         onFx(() -> {
             navigator.signedIn(new AuthenticatedUser(1, "Lina", "Haddad", "96170123456"));
             return null;
@@ -219,11 +229,12 @@ class AppShellNavigationTest {
     }
 
     @Test
-    void walletsListsThePersonalWalletAndOnlyANoteForSharedWallets() throws Exception {
+    void walletsListsThePersonalWalletAndTheSharedWalletSection() throws Exception {
         nav("#navWallets");
         waitUntil(() -> "$12.00".equals(text(navigator.currentScreen(), "#walletsBalanceLabel")));
-        Node note = lookup("#sharedWalletsNote");
-        assertInstanceOf(Label.class, note, "shared wallets: plain text, not a button");
+        // Shared Wallet P01 replaced the placeholder note with the real (here empty) list.
+        waitUntil(() -> lookup("#noSharedWalletsLabel") != null);
+        assertNotNull(lookup("#createSharedWalletButton"));
         click("#personalWalletTile");
         assertInstanceOf(WalletDetailView.class, onFx(navigator::currentScreen));
         clickIn(navigator.windowRoot(), "#flowBackButton");

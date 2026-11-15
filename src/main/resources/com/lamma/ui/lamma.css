@@ -71,6 +71,23 @@
     -fx-highlight-fill: -lamma-primary;
     -fx-highlight-text-fill: -lamma-on-primary;
 }
+.text-area {
+    -fx-background-color: -lamma-border, -lamma-surface;
+    -fx-background-insets: 0, 1;
+    -fx-background-radius: 10, 9;
+    -fx-padding: 2;
+    -fx-text-fill: -lamma-text;
+    -fx-prompt-text-fill: -lamma-text-muted;
+}
+.text-area .content {
+    -fx-background-color: -lamma-surface;
+    -fx-background-radius: 9;
+    -fx-padding: 7 10;
+}
+.text-area:focused {
+    -fx-background-color: -lamma-primary, -lamma-surface;
+    -fx-background-insets: 0, 2;
+}
 .text-field:focused, .password-field:focused {
     -fx-background-color: -lamma-primary, -lamma-surface;
     -fx-background-insets: 0, 2;
@@ -489,4 +506,20 @@
     -fx-text-fill: -lamma-bg;
     -fx-background-radius: 6;
     -fx-font-size: 12px;
+}
+
+/* ---------- Progress (shared wallet target) ---------- */
+.progress-bar {
+    -fx-indeterminate-bar-length: 60;
+}
+.progress-bar > .track {
+    -fx-background-color: -lamma-surface-2;
+    -fx-background-radius: 6;
+    -fx-background-insets: 0;
+}
+.progress-bar > .bar {
+    -fx-background-color: -lamma-primary;
+    -fx-background-radius: 6;
+    -fx-background-insets: 0;
+    -fx-padding: 5;
 }

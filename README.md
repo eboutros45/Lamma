@@ -11,6 +11,8 @@ personal wallet balance and sign out. Alpha 2 adds:
 - **Payment Methods** to save, rename and remove cards (P02)
 - **Send Money** to another registered LAMMA user by phone number (P03)
 - a **Recent Activity** list
+- **Shared wallets** (Shared Wallet P01): create one, see it in Wallets, and open its details
+  and members. Invitations, contributions and expenses come in later phases.
 
 All money is simulated. Business accounts are still "Coming Soon".
 
@@ -58,7 +60,7 @@ JavaFX and the MySQL JDBC driver are downloaded by Maven automatically.
    mvn -q compile exec:java
    ```
 
-   Expected output: `OK: Connected to MySQL 8.0.x, database 'lamma', schema version 5 ...`
+   Expected output: `OK: Connected to MySQL 8.0.x, database 'lamma', schema version 6 ...`
 
    > Once a database has been upgraded to version 3 or later, the Alpha 1 app on `main` refuses to start
    > against it ("schema is newer than this application"). If you switch between `main` and
@@ -117,9 +119,9 @@ the **Sign In** screen:
 ## Look and navigation
 
 - **Signed in, the app has four destinations:** **Home** (balance, Send Money / Add Money, recent
-  activity, "View all" history), **Wallets** (your personal wallet → details and full history;
-  shared wallets will be listed here later), **Cards** (saved cards) and **Profile** (account
-  details, theme, Sign Out).
+  activity, "View all" history), **Wallets** (your personal wallet → details and full history,
+  then your **shared wallets** with **Create Shared Wallet**), **Cards** (saved cards) and
+  **Profile** (account details, theme, Sign Out).
 - **Navigation follows the window width:**
   - **860 px or wider:** sidebar
   - **below 820 px:** bottom bar
@@ -149,13 +151,13 @@ mvn test
 Two groups of tests are **skipped** unless their environment is available. Maven reports them as
 `Skipped`, not passed:
 
-- **95 MySQL integration tests** run only when `LAMMA_TEST_DB_*` is set (see below).
-- **51 JavaFX UI tests** (`DashboardNavigationTest`, `AsyncNavigationRaceTest`, `CashTopUpFlowTest`,
-  `CardFlowsTest`, `SendMoneyFlowTest`, `AppShellNavigationTest`) need a
+- **108 MySQL integration tests** run only when `LAMMA_TEST_DB_*` is set (see below).
+- **59 JavaFX UI tests** (`DashboardNavigationTest`, `AsyncNavigationRaceTest`, `CashTopUpFlowTest`,
+  `CardFlowsTest`, `SendMoneyFlowTest`, `AppShellNavigationTest`, `SharedWalletFlowTest`) need a
   graphical display. They always run on macOS and Windows; on Linux they need `DISPLAY` (a
   desktop session, or `xvfb-run`). No window is shown.
 
-With neither available, expect `Tests run: 262, Failures: 0, Errors: 0, Skipped: 146`. To run the
+With neither available, expect `Tests run: 287, Failures: 0, Errors: 0, Skipped: 167`. To run the
 MySQL tests, point them at the test database:
 
 ```bash
@@ -164,8 +166,8 @@ LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
 mvn test
 ```
 
-Expect `Skipped: 51` if no display is available (the JavaFX tests), and with a display as well,
-`Tests run: 262, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
+Expect `Skipped: 59` if no display is available (the JavaFX tests), and with a display as well,
+`Tests run: 287, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
 `xvfb-run -a mvn test` (with the variables above).
 
 These tests drop and recreate all tables in that database, so they refuse to run unless the
@@ -202,7 +204,7 @@ MySQL                                 users, wallets, schema_version
 - `src/main/resources/db/migration/`: versioned schema scripts.
 - `database/create_database.sql`: one-time admin setup (database and user).
 
-## Database schema (version 5)
+## Database schema (version 6)
 
 ### `users` (USER)
 
@@ -247,6 +249,23 @@ will be one DEBIT row plus one CREDIT row.
 | `request_id` | VARCHAR(36), **UNIQUE** | One id per confirmation, so a repeated request can't credit twice |
 | `created_at` | DATETIME | Stored in **UTC**, shown in the computer's time zone |
 
+### Shared wallets (V006, LDM WALLET / SHARED_WALLET / SHARED_WALLET_MEMBER)
+
+A shared wallet **is a wallet**: a `wallets` row with `wallet_type = 'SHARED'`, its own
+`balance`, and (later) its own `wallet_transactions`.
+
+- **`wallets`** gained `name` (personal wallets default to "Personal Wallet") and `status`
+  (`ACTIVE` only for now). `owner_user_id` is the LDM's `personal_user_id`: required for PERSONAL
+  wallets and **NULL for SHARED** ones.
+- **`shared_wallets`**: `shared_wallet_id` (primary key and foreign key to `wallets`),
+  `gift_recipient_id` (optional, references `users`, not used yet), `purpose` (≤80), `description`
+  (≤500), `target_amount` (optional, > 0).
+- **`shared_wallet_members`**: primary key (`user_id`, `shared_wallet_id`), `member_role`
+  (`OWNER` / `CONTRIBUTOR` / `SPENDER`) and `joined_at` (UTC). **Having a membership row is what
+  grants access.** Every shared-wallet query filters by the session's user id.
+- **Creation** inserts the wallet, its `shared_wallets` row and the creator's `OWNER` membership
+  in **one transaction**.
+
 ### `payment_cards` (Alpha 2 P02)
 
 Saved cards hold **metadata only**. There is no column for the card number or CVV.
@@ -282,8 +301,9 @@ first.
 | 3 | `V003__create_wallet_transactions.sql` | `wallet_transactions` (Alpha 2 P01) |
 | 4 | `V004__add_payment_cards_and_card_top_ups.sql` | `payment_cards`; `CARD_TOP_UP` with card snapshot columns (Alpha 2 P02) |
 | 5 | `V005__add_wallet_transfers.sql` | `TRANSFER_OUT` / `TRANSFER_IN`, `transfer_id`, `counterparty_wallet_id` (Alpha 2 P03) |
+| 6 | `V006__add_shared_wallets.sql` | `wallets.name`, `wallets.status`, type `SHARED`, `shared_wallets`, `shared_wallet_members` (Shared Wallet P01) |
 
-When adding a table that references `users`, `wallets`, `wallet_transactions` or `payment_cards`, also add it to
+When adding a table that references `users`, `wallets`, `wallet_transactions`, `payment_cards`, `shared_wallets` or `shared_wallet_members`, also add it to
 the `DROP TABLE` lists in `src/test/java/com/lamma/testsupport/TestDatabase.java` and
 `SchemaConstraintsIntegrationTest`, child tables first.
 
@@ -421,10 +441,10 @@ mysql -u root < database/create_database.sql
 cp config/database.properties.example config/database.properties   # then set db.password
 
 # 3. Verify
-mvn -q compile exec:java         # expect: OK: Connected to MySQL ... schema version 5
+mvn -q compile exec:java         # expect: OK: Connected to MySQL ... schema version 6
 LAMMA_TEST_DB_URL='jdbc:mysql://localhost:3306/lamma_test' \
 LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
-mvn test                         # expect: Tests run: 262, Failures: 0, Errors: 0, Skipped: 0
+mvn test                         # expect: Tests run: 287, Failures: 0, Errors: 0, Skipped: 0
 
 # 4. Run and try it
 mvn javafx:run

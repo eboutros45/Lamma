@@ -8,6 +8,7 @@ import com.lamma.auth.UserSession;
 import com.lamma.cards.PaymentCardService;
 import com.lamma.db.Database;
 import com.lamma.ui.AppShell.Destination;
+import com.lamma.wallet.SharedWalletService;
 import com.lamma.wallet.TopUpService;
 import com.lamma.wallet.TransferService;
 import com.lamma.wallet.WalletService;
@@ -46,6 +47,7 @@ public final class AppNavigator {
     private TopUpService topUpService;
     private PaymentCardService paymentCardService;
     private TransferService transferService;
+    private SharedWalletService sharedWalletService;
 
     /** Normal start-up: shows the startup screen, which connects to the database. */
     public AppNavigator(Stage stage) {
@@ -112,6 +114,7 @@ public final class AppNavigator {
         this.topUpService = new TopUpService(database);
         this.paymentCardService = new PaymentCardService(database);
         this.transferService = new TransferService(database);
+        this.sharedWalletService = new SharedWalletService(database);
         showSignIn("", "");
     }
 
@@ -213,6 +216,20 @@ public final class AppNavigator {
         }
     }
 
+    /** New shared wallet; Back returns to Wallets. */
+    void showCreateSharedWallet() {
+        if (requireSession()) {
+            showFlow(new CreateSharedWalletView(this, user()), "New Shared Wallet", this::showWallets, true);
+        }
+    }
+
+    /** One shared wallet (members only; the service checks membership); Back returns to Wallets. */
+    void showSharedWalletDetail(long walletId) {
+        if (requireSession()) {
+            showFlow(new SharedWalletDetailView(this, user(), walletId), "Shared Wallet", this::showWallets, true);
+        }
+    }
+
     void showSendMoney() {
         if (requireSession()) {
             Destination from = destination;
@@ -271,6 +288,15 @@ public final class AppNavigator {
 
     TransferService transferService() {
         return transferService;
+    }
+
+    SharedWalletService sharedWalletService() {
+        return sharedWalletService;
+    }
+
+    /** For automated UI tests: supplies the shared-wallet service. */
+    void useSharedWalletService(SharedWalletService service) {
+        this.sharedWalletService = service;
     }
 
     // ---------- internals ----------
