@@ -581,3 +581,24 @@
     -fx-border-width: 0 0 0 4;
     -fx-border-radius: 12;
 }
+
+/* ---------- Day headings in transaction histories (P05) ---------- */
+.day-heading {
+    -fx-text-fill: -lamma-text-muted;
+    -fx-font-weight: bold;
+    -fx-padding: 10 0 2 2;
+}
+
+/* ---------- Home: invitations / payment requests waiting (P05) ---------- */
+.waiting-notice {
+    -fx-background-color: -lamma-primary-soft;
+    -fx-text-fill: -lamma-primary;
+    -fx-font-weight: bold;
+    -fx-background-radius: 12;
+    -fx-padding: 12 14;
+    -fx-alignment: center-left;
+    -fx-cursor: hand;
+}
+.waiting-notice .icon {
+    -fx-background-color: -lamma-primary;
+}

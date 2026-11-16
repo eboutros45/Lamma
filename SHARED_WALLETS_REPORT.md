@@ -1288,4 +1288,122 @@ Afterwards:
 | Item | Value |
 |---|---|
 | Branch | `alpha2-development` (pushed) |
-| P05-1 commit | the commit that adds this section (hash given in the completion message) |
+| P05-1 commit | `f53a879` |
+
+---
+
+## P05-2 — Application Polish
+
+No business rules were changed. Every change below is in the JavaFX layer, except a test helper.
+
+### 1. Summary of changes
+
+**The JavaFX CSS warning (open since P02) is fixed at its cause.**
+- **The cause:** Sign In and Sign Out *replaced the scene's root node* (the sign-in frame ↔ the
+  app shell). JavaFX then restyled the outgoing root's nodes after they had lost the theme, so
+  every icon's colour lookup failed and was logged. Up to 21 warnings appeared per GUI test run.
+- **The first idea didn't work:** also defining the theme colours on the top-level containers left
+  the count unchanged, so that change was reverted rather than kept.
+- **The fix:** the window now has one permanent root holding a signed-out layer and the shell,
+  and only one is visible. That is the same mechanism as normal navigation, which never warned.
+  On Sign Out, the shell's current screen is also cleared, so the previous user's last screen no
+  longer stays in memory until the next sign-in.
+- **Result:** **0 warnings** across all UI tests (21 before). `windowRoot()` now returns the
+  visible layer, so a test still confirms that no navigation is reachable when signed out.
+
+**Transaction history** (personal and shared, the Home list and recent activity):
+- Each row has the type; **what it was about**, wrapping instead of being cut with "…"; then the
+  **time and reference**; and the **signed amount** (+ green in, − out, plus "Incoming" /
+  "Outgoing" for screen readers) with its status.
+- References are now shown for **all transfers**, including personal Send Money, as EXP-n,
+  GIFT-n or the first 8 characters of the transfer id. Cash top-ups have no description line.
+- **Full histories are grouped by day** ("Today", "Yesterday", "Sat, Nov 15, 2026"), with only the
+  time on each row. Short lists (Home, a wallet's recent activity) keep the full date.
+- Sorting is unchanged (newest first), and so is what is stored.
+
+**Navigation and dashboard:**
+- **Home** shows a reminder when invitations or payment requests are waiting ("1 payment request is
+  waiting for you · Open Wallets"), linking to Wallets, where they are answered.
+- **Wallets** lists delivered gifts under **Completed gifts** (P05-1), separate from active wallets.
+- A delivered gift's screen no longer shows a misleading "$0.00 of target".
+
+**Forms and feedback (audit):** every view that starts background work was checked for disabled
+controls during processing.
+- One gap was found and fixed: **Import Contacts** could start a second import while one was running.
+- All others already disabled their button, or replace the screen with "Loading…": sign-in and
+  sign-up, top-ups, cards, Send Money, shared transfers, invitations, QR actions, role changes,
+  expenses, payments, revisions, cancellation, account settings and Send Gift.
+- Confirmations exist for every irreversible or money-moving action, and success and error
+  messages are shown in place.
+
+**Responsive and theme review** (screenshots of 10 screens in light/wide and dark/narrow):
+- The shared history's explanation was squeezed to one line on narrow windows; fixed.
+- The history rows that were cut off on narrow windows (seen in P04C/P05-1) now wrap.
+
+**Lifecycle check:**
+- **Listeners:** listeners are only attached to each screen's own nodes, plus one scene listener
+  owned by the navigator, so screens can't leak across navigation or accounts.
+- **Stale data:** every screen still ignores background results once it isn't shown or the
+  sign-in changed (`stillCurrent()`).
+- **Balances:** they are reloaded from MySQL whenever a screen is opened.
+- No duplicate handlers were found.
+
+### 2. Schema
+
+None.
+
+**Files changed:**
+- `AppNavigator`, `AppShell` (permanent window root, cleared on Sign Out)
+- `ActivityRows`, `TransactionLabels` (rows, day grouping, references)
+- `WalletDetailView`, `SharedWalletHistoryView` (grouped)
+- `DashboardView` (waiting reminder), `ContactsView` (import disabled while running)
+- `lamma.css`
+- Tests: new `TransactionLabelsTest`; history assertions in `AppShellNavigationTest` and
+  `SharedWalletFundsFlowTest` now count transaction rows (the lists also contain day headings);
+  `ExpenseFlowTest` checks the Home reminder.
+
+### 3. Build and test results
+
+| Configuration | Run | Passed | Failed | Skipped |
+|---|---|---|---|---|
+| Baseline at `f53a879` (P05-1), MySQL and display | 390 | 390 | 0 | 0 |
+| No MySQL settings, no display | 393 | 139 | 0 | 254 |
+| MySQL settings, no display | 393 | 322 | 0 | 71 |
+| **MySQL settings and a display (virtual display)** | **393** | **393** | **0** | **0** |
+
+JavaFX CSS warnings in the GUI run: **0** (21 at P05-1).
+
+New tests (3): `TransactionLabelsTest`, with no display or database:
+- descriptions for shared sends, gift deliveries, expense payments, personal Send Money, cards and
+  cash
+- EXP-, GIFT- and UUID references, and time-only lines under a day heading
+- the "Today" / "Yesterday" / date headings
+
+### 4. Known limitations
+
+1. **Wallet tiles** still shorten a long subtitle ("Summer trip with f…") on narrow windows. It is a
+   one-line summary inside a button, where wrapping text misbehaves in JavaFX; the full text is on
+   the wallet's screen.
+2. **The Home reminder** appears when Home is opened (no live notifications).
+3. **Day headings** use the computer's time zone, like all displayed times.
+4. **No new automated layout checks:** the visual review was done with screenshots on Linux;
+   there are no new automated tests for layout.
+
+### 5. Windows manual-testing checklist
+
+1. `mvn clean javafx:run`. Sign in, sign out and sign in as someone else several times; the
+   console shows **no** "Caught 'java.lang.ClassCastException'" CSS warnings.
+2. Home → View all: rows are grouped under Today / Yesterday / dates; long descriptions wrap; each
+   transfer shows "Ref …". Repeat in a shared wallet's View all.
+3. With a pending invitation or payment request, Home shows the reminder; clicking it opens Wallets.
+4. Profile → Contacts → Import: the button is disabled until the import finishes.
+5. Light and Dark, wide and narrow (about 420 px): no amounts or buttons cut off; history text
+   wraps.
+
+### 6. Commit
+
+| Item | Value |
+|---|---|
+| Branch | `alpha2-development` (pushed) |
+| P05-2 commit | the commit that adds this section (hash given in the completion message) |
+| `main` | unchanged; nothing merged |

@@ -44,6 +44,14 @@ public final class AppNavigator {
     private final Scene scene;
     private final ThemeSettings theme;
     private final AppShell shell = new AppShell(this::navigateTo);
+    /**
+     * The scene's root never changes: it holds the signed-out layer and the shell, and only one is
+     * visible. (Replacing the scene's root on every Sign In / Sign Out made JavaFX restyle the old
+     * root's nodes after they had lost the theme, which logged CSS warnings; swapping children, as
+     * navigation does, doesn't.)
+     */
+    private final StackPane windowLayers = new StackPane();
+    private final StackPane signedOutLayer = new StackPane();
     private final UserSession session = new UserSession();
     private Parent current;
     private Destination destination = Destination.HOME;
@@ -109,7 +117,9 @@ public final class AppNavigator {
     }
 
     private Scene createScene(Stage stage) {
-        Scene newScene = new Scene(new StackPane(), DEFAULT_WIDTH, DEFAULT_HEIGHT);
+        windowLayers.getChildren().setAll(signedOutLayer, shell);
+        showLayer(false);
+        Scene newScene = new Scene(windowLayers, DEFAULT_WIDTH, DEFAULT_HEIGHT);
         theme.attach(newScene);
         newScene.widthProperty().addListener((obs, old, width) -> shell.updateLayout(width.doubleValue()));
         stage.setTitle("LAMMA");
@@ -365,7 +375,7 @@ public final class AppNavigator {
 
     /** The whole window content, including navigation (tests and screenshots). */
     Parent windowRoot() {
-        return scene.getRoot();
+        return shell.isVisible() ? shell : signedOutLayer; // what is on screen (the other layer is hidden)
     }
 
     AppShell shell() {
@@ -493,7 +503,9 @@ public final class AppNavigator {
         StackPane frame = new StackPane(scroll);
         frame.getStyleClass().add("auth-frame");
         current = screen;
-        scene.setRoot(frame);
+        shell.clearContent(); // the signed-in screen (and its user's data) is dropped
+        signedOutLayer.getChildren().setAll(frame);
+        showLayer(false);
         AppShell.fadeIn(screen);
     }
 
@@ -511,9 +523,18 @@ public final class AppNavigator {
     }
 
     private void enterShell() {
-        if (scene.getRoot() != shell) {
-            scene.setRoot(shell);
+        if (!shell.isVisible()) {
+            signedOutLayer.getChildren().clear();
+            showLayer(true);
             shell.updateLayout(scene.getWidth());
         }
+    }
+
+    /** Shows the shell (signed in) or the signed-out layer; the hidden one takes no space or input. */
+    private void showLayer(boolean signedIn) {
+        shell.setVisible(signedIn);
+        shell.setManaged(signedIn);
+        signedOutLayer.setVisible(!signedIn);
+        signedOutLayer.setManaged(!signedIn);
     }
 }

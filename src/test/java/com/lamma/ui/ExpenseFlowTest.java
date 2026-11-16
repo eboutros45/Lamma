@@ -135,9 +135,14 @@ class ExpenseFlowTest {
         assertEquals("Pending", text("#shareState-" + rami.userId()));
         assertEquals("0.00", value("SELECT balance FROM wallets WHERE wallet_id = " + trip), "nobody was charged");
 
-        // Nour (a Contributor) declines from the Wallets screen.
+        // Nour (a Contributor) is told on Home, then declines from the Wallets screen.
         switchTo(nour);
-        nav("#navWallets");
+        waitUntil(() -> navigator.windowRoot().lookup("#waitingNotice") != null
+                && navigator.windowRoot().lookup("#waitingNotice").isVisible());
+        assertEquals("1 payment request is waiting for you · Open Wallets",
+                onFx(() -> ((Labeled) navigator.windowRoot().lookup("#waitingNotice")).getText()));
+        nav("#waitingNotice");
+        waitUntil(() -> lookup("#paymentRequestsSection") != null);
         waitUntil(() -> textUnder("#paymentRequestsSection").contains("Payment requests (1)"));
         assertTrue(textUnder("#paymentRequestsSection").contains("Lina Haddad asks you for $30.00 for \u201cHotel\u201d in Beirut Trip"));
         clickFirst("declineRequest-");

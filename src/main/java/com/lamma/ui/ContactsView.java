@@ -34,6 +34,7 @@ final class ContactsView extends VBox {
     private final TextField search = new TextField();
     private final VBox list = new VBox();
     private List<Contact> contacts = List.of();
+    private Button importButton;
 
     ContactsView(AppNavigator navigator, AuthenticatedUser user) {
         this.navigator = navigator;
@@ -41,7 +42,7 @@ final class ContactsView extends VBox {
         getStyleClass().add("screen");
         setStyle("-fx-max-width: 720; -fx-alignment: top-left;");
 
-        Button importButton = Screens.withIcon(Screens.primaryButton("Import Contacts", "importContactsButton"),
+        importButton = Screens.withIcon(Screens.primaryButton("Import Contacts", "importContactsButton"),
                 Icons.Icon.ADD);
         importButton.setDefaultButton(false);
         importButton.setOnAction(event -> chooseFile());
@@ -80,6 +81,7 @@ final class ContactsView extends VBox {
     /** Imports one file (called after the file is chosen; tests call it directly). */
     void importPath(Path path) {
         report.getChildren().clear();
+        importButton.setDisable(true); // one import at a time
         Screens.showInfo(message, "Importing…");
         long userId = user.userId();
         String name = path.getFileName().toString();
@@ -97,12 +99,14 @@ final class ContactsView extends VBox {
                     return navigator.contactService().importFile(userId, name, content);
                 },
                 (ImportReport r) -> {
+                    importButton.setDisable(false);
                     if (stillCurrent()) {
                         showReport(r);
                         load(null);
                     }
                 },
                 error -> {
+                    importButton.setDisable(false);
                     if (stillCurrent()) {
                         Screens.showError(message, error);
                     }

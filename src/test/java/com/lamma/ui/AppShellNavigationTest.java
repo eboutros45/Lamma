@@ -240,7 +240,10 @@ class AppShellNavigationTest {
         assertInstanceOf(WalletDetailView.class, onFx(navigator::currentScreen));
         waitUntil(() -> "$12.00".equals(text(navigator.currentScreen(), "#detailBalanceLabel")));
         VBox all = (VBox) lookup("#historyList");
-        assertEquals(12, (int) onFx(() -> all.getChildren().size()));
+        assertEquals(12L, (long) onFx(() -> all.getChildren().stream()
+                .filter(n -> n.getStyleClass().contains("activity-row")).count()), "every transaction");
+        assertEquals(1L, (long) onFx(() -> all.getChildren().stream()
+                .filter(n -> n.getStyleClass().contains("day-heading")).count()), "grouped under one day heading");
         clickIn(navigator.windowRoot(), "#flowBackButton");
         assertInstanceOf(DashboardView.class, onFx(navigator::currentScreen));
     }

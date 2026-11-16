@@ -86,7 +86,7 @@ final class WalletDetailView extends VBox {
                     balance.setText(Money.formatUsd(d.wallet().balance()));
                     status.setText("");
                     status.setManaged(false);
-                    ActivityRows.fill(history, d.transactions(), "No transactions yet.");
+                    ActivityRows.fill(history, d.transactions(), "No transactions yet.", true);
                 },
                 error -> {
                     if (stillCurrent()) {

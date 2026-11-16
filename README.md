@@ -165,6 +165,12 @@ the **Sign In** screen:
   accounts. Typing part of a name or number in a recipient field (Send Money, shared wallet Send
   Money, Invite Member) suggests matching contacts; choosing one only fills in the number, which
   is then looked up as usual.
+- **Home** shows a reminder when invitations or payment requests are waiting for you; it opens
+  Wallets, where they are answered.
+- **Transaction histories** (personal and shared) are grouped by day (Today, Yesterday, then
+  the date). Each row shows the type, what it was about (who, which wallet, which expense), the
+  time and the transfer reference. Long text wraps instead of being cut off, so it stays
+  readable on narrow windows. + (green) is money in, − is money out.
 - **Theme:** Profile → Appearance → **System** (default), **Light** or **Dark**. The change applies
   immediately and is saved on this computer with Java's `Preferences` (the registry on Windows, a
   plist on macOS, `~/.java` on Linux).
@@ -196,7 +202,7 @@ Two groups of tests are **skipped** unless their environment is available. Maven
   `SharedWalletFundsFlowTest` (2), `AccountAndContactsFlowTest` (2), `GiftWalletFlowTest` (2),
   `ExpenseFlowTest` (2) and `GiftDeliveryFlowTest` (1) need MySQL as well and are counted here.
 
-With neither available, expect `Tests run: 390, Failures: 0, Errors: 0, Skipped: 254`. To run the
+With neither available, expect `Tests run: 393, Failures: 0, Errors: 0, Skipped: 254`. To run the
 MySQL tests, point them at the test database:
 
 ```bash
@@ -206,7 +212,7 @@ mvn test
 ```
 
 Expect `Skipped: 71` if no display is available (the JavaFX tests), and with a display as well,
-`Tests run: 390, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
+`Tests run: 393, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
 `xvfb-run -a mvn test` (with the variables above).
 
 These tests drop and recreate all tables in that database, so they refuse to run unless the
@@ -599,7 +605,7 @@ cp config/database.properties.example config/database.properties   # then set db
 mvn -q compile exec:java         # expect: OK: Connected to MySQL ... schema version 11
 LAMMA_TEST_DB_URL='jdbc:mysql://localhost:3306/lamma_test' \
 LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
-mvn test                         # expect: Tests run: 390, Failures: 0, Errors: 0, Skipped: 0
+mvn test                         # expect: Tests run: 393, Failures: 0, Errors: 0, Skipped: 0
 
 # 4. Run and try it
 mvn javafx:run

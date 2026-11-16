@@ -157,6 +157,11 @@ final class AppShell extends BorderPane {
         fadeIn(body);
     }
 
+    /** Removes the current screen (after Sign Out). */
+    void clearContent() {
+        contentHost.getChildren().clear();
+    }
+
     /** A short fade so screen changes are noticeable but not slow. */
     static void fadeIn(Node node) {
         FadeTransition fade = new FadeTransition(Duration.millis(140), node);

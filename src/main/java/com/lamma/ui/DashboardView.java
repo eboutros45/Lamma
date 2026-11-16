@@ -46,6 +46,8 @@ final class DashboardView extends VBox {
     private final VBox walletColumn;
     private final VBox activityCard;
     private final HBox columns = new HBox(24);
+    /** "2 payment requests and 1 invitation are waiting" → Wallets (hidden when nothing waits). */
+    private final Button waiting = new Button();
     private Boolean twoColumns;
 
     DashboardView(AppNavigator navigator, AuthenticatedUser user) {
@@ -53,7 +55,10 @@ final class DashboardView extends VBox {
         this.user = user;
         getStyleClass().addAll("dashboard", "dashboard-content");
 
-        walletColumn = new VBox(16, heroCard(), actions(), walletStatus, retry);
+        waiting.setId("waitingNotice");
+        waiting.setVisible(false);
+        waiting.setManaged(false);
+        walletColumn = new VBox(16, heroCard(), actions(), waiting, walletStatus, retry);
         activityCard = activitySection();
         VBox.setVgrow(columns, Priority.ALWAYS);
         getChildren().addAll(header(), columns);
@@ -61,6 +66,39 @@ final class DashboardView extends VBox {
         widthProperty().addListener((obs, old, width) -> arrange(width.doubleValue()));
         arrange(AppNavigator.DEFAULT_WIDTH);
         load();
+        loadWaiting();
+    }
+
+    /**
+     * Invitations and payment requests waiting for this user are answered under Wallets; Home
+     * points there so they aren't missed. Optional: if it can't be loaded, nothing is shown.
+     */
+    private void loadWaiting() {
+        if (navigator.membershipService() == null || navigator.expenseService() == null) {
+            return; // services not set up (e.g. a screen test without shared wallets)
+        }
+        long userId = user.userId();
+        BackgroundWork.run(() -> new int[] {navigator.expenseService().myPendingRequests(userId).size(),
+                        navigator.membershipService().incomingInvitations(userId).size()},
+                (int[] counts) -> {
+                    if (!stillCurrent() || counts[0] + counts[1] == 0) {
+                        return;
+                    }
+                    String requests = counts[0] == 0 ? "" : counts[0] + (counts[0] == 1 ? " payment request" : " payment requests");
+                    String invitations = counts[1] == 0 ? "" : counts[1] + (counts[1] == 1 ? " invitation" : " invitations");
+                    String what = requests.isEmpty() ? invitations : invitations.isEmpty() ? requests
+                            : requests + " and " + invitations;
+                    boolean one = counts[0] + counts[1] == 1;
+                    waiting.setText(what + (one ? " is" : " are") + " waiting for you · Open Wallets");
+                    Screens.withIcon(waiting, Icon.GROUP);
+                    waiting.getStyleClass().add("waiting-notice");
+                    waiting.setWrapText(true);
+                    waiting.setMaxWidth(Double.MAX_VALUE);
+                    waiting.setOnAction(event -> navigator.navigateTo(AppShell.Destination.WALLETS));
+                    waiting.setVisible(true);
+                    waiting.setManaged(true);
+                },
+                error -> { }); // optional reminder
     }
 
     private HBox header() {

@@ -53,7 +53,7 @@ final class SharedWalletHistoryView extends VBox {
         scroll.getStyleClass().add("activity-scroll");
         VBox.setVgrow(scroll, Priority.ALWAYS);
         VBox historyCard = new VBox(8, Screens.sectionTitle("Transaction history"),
-                Screens.hint("Money in (+) and out (−) of this shared wallet. Every member sees the same history."),
+                explanation(),
                 status, retry, scroll);
         historyCard.getStyleClass().add("card");
         VBox.setVgrow(historyCard, Priority.ALWAYS);
@@ -62,6 +62,13 @@ final class SharedWalletHistoryView extends VBox {
         retry.setOnAction(event -> load());
         getChildren().addAll(hero, historyCard);
         load();
+    }
+
+    /** Keeps its full height: the scrolling list below shrinks instead of this text being cut. */
+    private static Label explanation() {
+        Label text = Screens.hint("Money in (+) and out (−) of this shared wallet. Every member sees the same history.");
+        text.setMinHeight(javafx.scene.layout.Region.USE_PREF_SIZE);
+        return text;
     }
 
     private void load() {
@@ -81,7 +88,7 @@ final class SharedWalletHistoryView extends VBox {
                     status.setText("");
                     status.setManaged(false);
                     ActivityRows.fill(history, d.transactions(),
-                            "No transactions yet. Contributions, withdrawals and payments will appear here.");
+                            "No transactions yet. Contributions, withdrawals and payments will appear here.", true);
                 },
                 error -> {
                     if (stillCurrent()) {

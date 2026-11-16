@@ -207,7 +207,9 @@ class SharedWalletFundsFlowTest {
         switchTo(lina);
         openWallet();
         click("#viewSharedHistoryButton");
-        waitUntil(() -> lookup("#sharedHistoryList") != null && ((VBox) lookup("#sharedHistoryList")).getChildren().size() == 4);
+        waitUntil(() -> lookup("#sharedHistoryList") != null && ((VBox) lookup("#sharedHistoryList")).getChildren().stream()
+                .filter(n -> n.getStyleClass().contains("activity-row")).count() == 4);
+        assertTrue(textUnder("#sharedHistoryList").startsWith("|Today|"), "grouped by day, newest first");
         String history = textUnder("#sharedHistoryList");
         int sent = history.indexOf("|Money Sent|To Sami Aoun \u00b7 by Rami Khoury");
         int withdrawn = history.indexOf("|Withdrawal|To Rami Khoury");

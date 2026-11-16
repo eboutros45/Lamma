@@ -12,6 +12,8 @@ import java.util.Locale;
 /** Turns stored transaction values into text for the screen. */
 final class TransactionLabels {
 
+    private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("EEE, MMM d, yyyy", Locale.US);
+    private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("h:mm a", Locale.US);
     private static final DateTimeFormatter DATE_TIME =
             DateTimeFormatter.ofPattern("MMM d, yyyy, h:mm a", Locale.US);
 
@@ -51,31 +53,65 @@ final class TransactionLabels {
     }
 
     /**
-     * Second line of an activity row: the other person, shared wallet or card (if any), then the
-     * local date and time. Shared-wallet transfers also say who sent shared money and give a
-     * short reference.
+     * What the transaction was about, without date or reference: the other person, shared wallet
+     * or card, who started a shared transfer, and the expense it paid. Empty for a cash top-up.
      */
-    static String details(WalletTransaction t) {
-        String when = dateTime(t.createdAt());
-        if (t.transferKind() != null && t.counterpartyName() != null) {
+    static String description(WalletTransaction t) {
+        if (t.counterpartyName() != null) {
             String text = (t.isCredit() ? "From " : "To ") + t.counterpartyName();
-            if ((WalletTransaction.KIND_SHARED_SEND.equals(t.transferKind())
+            if (t.transferKind() != null && (WalletTransaction.KIND_SHARED_SEND.equals(t.transferKind())
                     || WalletTransaction.KIND_GIFT_DELIVERY.equals(t.transferKind())) && t.initiatedByName() != null) {
                 text += (t.isCredit() ? " \u00b7 sent by " : " \u00b7 by ") + t.initiatedByName();
             }
             if (t.expenseTitle() != null) {
                 text += " \u00b7 for \u201c" + t.expenseTitle() + "\u201d";
             }
-            return text + " \u00b7 " + when + " \u00b7 Ref " + reference(t);
+            return text;
         }
-        if (t.counterpartyName() != null) {
-            return (t.isCredit() ? "From " : "To ") + t.counterpartyName() + " \u00b7 " + when;
+        if (t.cardLast4() != null) {
+            return CardBrand.fromStored(t.cardBrand()).displayName() + " \u2022\u2022\u2022\u2022 " + t.cardLast4();
         }
-        if (t.cardLast4() == null) {
-            return when;
+        return "";
+    }
+
+    /**
+     * When it happened and, for transfers, the reference both sides share. {@code timeOnly} under
+     * a day heading ("8:41 PM · Ref EXP-7"), otherwise with the date.
+     */
+    static String timeAndReference(WalletTransaction t, boolean timeOnly) {
+        String when = timeOnly ? time(t.createdAt()) : dateTime(t.createdAt());
+        return t.transferId() == null ? when : when + " \u00b7 Ref " + reference(t);
+    }
+
+    /** The whole second line as one string (description, date, reference). */
+    static String details(WalletTransaction t) {
+        String description = description(t);
+        String rest = timeAndReference(t, false);
+        return description.isEmpty() ? rest : description + " \u00b7 " + rest;
+    }
+
+    /** A day heading for grouped histories: "Today", "Yesterday" or "Sat, Nov 15, 2026". */
+    static String day(LocalDateTime utc, java.time.LocalDate today) {
+        java.time.LocalDate date = local(utc).toLocalDate();
+        if (date.equals(today)) {
+            return "Today";
         }
-        return CardBrand.fromStored(t.cardBrand()).displayName() + " \u2022\u2022\u2022\u2022 " + t.cardLast4()
-                + " \u00b7 " + when;
+        if (date.equals(today.minusDays(1))) {
+            return "Yesterday";
+        }
+        return date.format(DAY);
+    }
+
+    static java.time.LocalDate localDate(LocalDateTime utc) {
+        return local(utc).toLocalDate();
+    }
+
+    static String time(LocalDateTime utc) {
+        return local(utc).format(TIME);
+    }
+
+    private static java.time.ZonedDateTime local(LocalDateTime utc) {
+        return utc.atOffset(ZoneOffset.UTC).atZoneSameInstant(ZoneId.systemDefault());
     }
 
     /**
