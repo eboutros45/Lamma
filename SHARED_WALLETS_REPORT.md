@@ -1,7 +1,7 @@
 # LAMMA Shared Wallets — Implementation Report
 
-**Current phase:** P05, in two checkpoints: P05-1 (gift delivery) and P05-2 (application polish).
-Each has its own section and commit below.
+**Current phase:** P05B (authentication redesign), after P05-1 (gift delivery) and P05-2
+(application polish). Each has its own section and commit below.
 **Branch:** `alpha2-development` (P01 `909efdd`, P02 `bafb4fe`, P03 `84ca5d1`, P04A `ff8a9b3`,
 P04B `0145fd5`, P04C `efe884e`). `main` is unchanged.
 **Verification platform:** Linux (Ubuntu 24.04), OpenJDK 21, Maven 3.9, MySQL 8.0.46, JavaFX 21
@@ -1405,5 +1405,162 @@ New tests (3): `TransactionLabelsTest`, with no display or database:
 | Item | Value |
 |---|---|
 | Branch | `alpha2-development` (pushed) |
-| P05-2 commit | the commit that adds this section (hash given in the completion message) |
+| P05-2 commit | `be041b3` |
+| `main` | unchanged; nothing merged |
+
+---
+
+## P05B — Authentication Redesign
+
+### 1. Summary of changes
+
+**Two-step Sign In.**
+
+1. **Phone number** (`SignInView`):
+   - LAMMA branding, "Welcome back", one line of guidance, the phone field with the existing
+     country-code convention explained below it, **Continue**, and "New to LAMMA? Create Account".
+   - The phone number is the only credential on this screen.
+   - Continue validates the number (the existing `PhoneNumbers` rules), disables itself while
+     checking ("Checking…"), and asks the service whether an account uses it.
+   - **Known number:** the PIN screen opens.
+   - **Unknown number:** "No LAMMA account uses this phone number. Check the number, or create an
+     account." with **Create Account** (opens sign-up with the number kept) and **Try Again**
+     (selects the number to edit). It never redirects automatically.
+2. **PIN** (`PinEntryView`):
+   - "Enter your PIN", "Signing in as +961 •• ••• 456" (country code and last group visible), the
+     six PIN boxes (focused at once), **Forgot PIN?** and **Use a different number** (back to step
+     1 with the number kept).
+   - The PIN is **submitted automatically** when the sixth digit arrives; the boxes are disabled
+     while signing in, so only one request is ever in flight.
+   - A wrong PIN turns the boxes red, clears them, and says "Incorrect PIN. 4 attempts left before
+     sign-in is paused for 5 minutes."
+   - The fifth wrong PIN, and any attempt while locked, gives "Too many incorrect PINs… paused for
+     5 minutes".
+   - A late result after the user has left the screen is ignored, as before.
+
+**The six-box PIN entry (`PinInput`), reused by Sign In, Sign Up and Profile → Account (Change
+PIN, and the current PIN for a phone change).** One masked `PasswordField` takes the input under
+six large boxes, so the keyboard, Tab traversal, screen readers ("PIN, 3 of 6 digits entered")
+and paste behave as for any field.
+- Digits only, at most 6. The caret is kept at the end, so typing advances to the next box and
+  Backspace removes the previous digit.
+- Pasting "12 34-56" fills all boxes; a whole pasted PIN replaces partial input.
+- It reports completion once per filled entry. The digits are never displayed, can't be copied
+  out, and are **cleared when the screen is left**.
+- Boxes shrink slightly on narrow windows rather than scrolling sideways.
+
+**Sign Up:**
+- The same fields as before (first and last name, phone number) with a six-box **PIN** and
+  **Confirm PIN**. Filling the PIN moves to the confirmation.
+- Problems are shown **under each field** before anything is sent: required names, invalid number,
+  "Enter 6 digits.", "The PINs don't match.". The service still validates everything and the
+  phone number's uniqueness.
+- The number typed at Sign In is kept. After creating the account, the user lands on the **PIN
+  step** ("Account created. Enter your new PIN to sign in.").
+
+**Change PIN** (Profile → Account, P04A) keeps its rules: current PIN verified, counting towards the
+lockout; new six-digit PIN; confirmation; must differ; stored as a new PBKDF2 hash. It now uses the
+six-box entry, which moves to the next box group when one is full.
+
+**Forgot PIN: honest, no reset.** The panel explains that a safe reset needs a code sent by SMS or
+email to prove ownership, which LAMMA doesn't have (P04A reached the same conclusion). It suggests
+changing the PIN on a computer where the user is still signed in, waiting, or using another
+number. No security question, fixed code or unverified reset was added.
+
+### 2. Architecture, compatibility and security
+
+- **Four-digit PINs:** none exist. `Pins.isValidFormat` has required exactly six digits since
+  accounts were introduced (Alpha 1 P02, `6fb0512`), at registration, sign-in and PIN change.
+  Every stored credential is a salted PBKDF2 hash (`pbkdf2-sha256$…`). The two accounts in the
+  dev database were checked. No compatibility path, padding or credential migration was needed,
+  so none was added (adding one would be unused code).
+- **`AuthenticationService.findAccount(phone)` (new):**
+  - Normalizes the number and answers only "has an account" or `NO_ACCOUNT_MESSAGE`; no name or
+    other detail.
+  - Not a PIN attempt, so the lockout counter is unchanged.
+  - Rate-limited to **10 lookups per minute** per running app.
+- **`signIn(phone, pin)`:** now says *why* it failed, since step 1 has already revealed that the
+  number exists: attempts left, or locked. An unknown number passed straight to `signIn` still
+  costs a hash computation and gets the old generic message. The 5-attempt / 5-minute lockout is
+  unchanged and enforced in the service and database, not the UI.
+- **Account enumeration:** the unknown-number message lets someone test whether a number is
+  registered. This was accepted for the project (Send Money and registration already reveal it).
+  The per-app rate limit slows automated listing. A desktop app connecting straight to MySQL
+  can't enforce a server-side limit; anyone with the database credentials could query directly.
+- **Sensitive state:**
+  - PINs are never stored or logged, and only hashed with the existing PBKDF2 hasher.
+  - PIN boxes are cleared after each attempt (success or failure) and when their screen is left.
+  - "Use a different number", Sign Out and account switching create fresh screens. Sign Out also
+    clears the signed-in screen (P05-2).
+- **Database:** no migration (the schema stays at 11), and no existing record is changed.
+
+**Files**
+- New: `ui/PinInput`, `ui/PinEntryView`.
+- Rewritten: `ui/SignInView` (phone step), `ui/PersonalSignUpView`.
+- Changed:
+  - `auth/AuthenticationService` (`findAccount`, rate limit, specific failure messages)
+  - `ui/SignUpChoiceView` and `ui/AppNavigator` (keep the number, `showPinEntry`)
+  - `ui/AccountSettingsView` (six-box entry)
+  - `lamma.css` (PIN boxes)
+  - README
+
+### 3. Build and test results
+
+| Configuration | Run | Passed | Failed | Skipped |
+|---|---|---|---|---|
+| Baseline at `be041b3` (P05-2), MySQL and display | 393 | 393 | 0 | 0 |
+| No MySQL settings, no display | 402 | 139 | 0 | 263 |
+| MySQL settings, no display | 402 | 324 | 0 | 78 |
+| **MySQL settings and a display (virtual display)** | **402** | **402** | **0** | **0** |
+
+New and changed tests (+9):
+
+| Class | Tests | Needs | Covers |
+|---|---|---|---|
+| `AuthenticationIntegrationTest` (+2, 1 rewritten, 1 updated) | 10 | MySQL | `findAccount`: any number format finds the account; unknown, invalid and empty refused; not counted as a PIN attempt; **rate limit** (the 11th lookup in a minute refused even for a real number, allowed again after a minute). Wrong PINs say how many attempts are left; the fifth and locked attempts say "locked" even for the right PIN; an unknown number at `signIn` stays generic. The existing lockout-expiry and counter-reset tests still pass |
+| `PinInputTest` | 4 | display | Real key events: digits fill the boxes, letters, spaces and dashes are ignored, a 7th digit doesn't fit, **completion reported once**. **Backspace** removes the previous digit; moving the caret (Home or click) snaps back so the next digit goes in the next box. **Paste** "12 34-56" fills all six, a partial paste continues, a whole PIN replaces, extra digits dropped, completion again after refilling. **No digit is ever displayed** (only "•"); accessible text "PIN, 4 of 6 digits entered"; typing clears the red state; **leaving the screen clears the PIN** |
+| `TwoStepSignInFlowTest` | 3 | MySQL + display | Real screens. Step 1 has no PIN field; an invalid number is an error but not "unknown"; an **unknown number** shows Create Account / Try Again and stays on Sign In; Try Again restores Continue. A known number opens the PIN screen with the **masked number** and **focus in the boxes**; a wrong PIN shows attempts left and **clears the boxes**; Forgot PIN shows the explanation; Use a different number keeps the number. The right PIN reaches the dashboard. **Sign Out, then another account:** fresh empty screens, the right user. **5 wrong PINs lock**, and the right PIN is then refused too. **Sign up from an unknown number** keeps it; field errors (names, "Enter 6 digits.", "The PINs don't match.") with nothing sent; success → PIN step → dashboard; hash stored. **After a restart** (new services) the new account signs in with its 6-digit PIN |
+| `AsyncNavigationRaceTest` (2, updated) | 2 | display | The existing race checks on the two-step flow: a slow sign-in finishing after the user moved to another number and signed in as someone else doesn't replace that session; a slow registration finishing late doesn't navigate |
+
+`AccountAndContactsFlowTest` (Change Phone / Change PIN) passes unchanged with the six-box entry,
+because the underlying field ids are the same.
+
+**Real app on Linux** (the real `lamma` database), light/wide and dark/narrow:
+- Phone step → unknown number → Try Again → Lina's number → PIN screen (empty, then 3 digits) →
+  a wrong PIN → Forgot PIN → Use a different number → Create Account → the form with field errors.
+- **Found and fixed:** on a 420 px window the six fixed-width boxes caused a sideways scrollbar.
+  The boxes can now shrink slightly (re-checked: no scrollbar).
+- Lina's counter was 1 after the deliberate wrong PIN and back to 0 after her correct sign-in. No
+  accounts were created.
+
+### 4. Known limitations
+
+1. **No PIN reset** (no SMS or email verification service); explained in the app.
+2. **Rate limit is per app:** the 10-per-minute lookup limit applies to one running app, not
+   server-wide (see enumeration above).
+3. **No remember-me:** the phone number isn't remembered between app starts.
+4. **Typing-based tests:** PIN typing is tested with JavaFX key events and paste with the
+   field's replace-selection, which is what a paste does. A real clipboard and OS keyboard were
+   not driven.
+
+### 5. Windows manual-testing checklist
+
+1. `mvn clean javafx:run` → Sign In shows only the phone number.
+2. An unknown number → the message with **Create Account** (number kept on the form) and **Try Again**.
+3. Your number → **Continue** → masked number, focus in the first box. Type 3 digits, Backspace,
+   then finish → it signs in by itself.
+4. Sign out → your number → a wrong 6-digit PIN → red boxes, cleared, "N attempts left". Paste a
+   6-digit PIN (Ctrl+V) → boxes fill and it submits.
+5. **Forgot PIN?** shows the explanation; **Use a different number** returns with the number.
+6. Create an account: leave fields empty → errors under each field; mismatched PINs → "The PINs
+   don't match."; correct → PIN screen → sign in.
+7. Profile → Account → Change PIN with the six boxes.
+8. Light/Dark and a narrow window: boxes readable, no sideways scrolling.
+
+### 6. Commit
+
+| Item | Value |
+|---|---|
+| Branch | `alpha2-development` (pushed) |
+| P05B commit | the commit that adds this section (hash given in the completion message) |
 | `main` | unchanged; nothing merged |

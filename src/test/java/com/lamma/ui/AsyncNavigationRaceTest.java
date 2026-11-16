@@ -66,6 +66,11 @@ class AsyncNavigationRaceTest {
         // PIN "111111" is slow (blocks until released) and signs in Lina; anything else signs in Rami at once.
         AuthenticationService auth = new AuthenticationService(null, hasher) {
             @Override
+            public String findAccount(String phone) throws com.lamma.auth.ValidationException {
+                return com.lamma.auth.PhoneNumbers.normalize(phone); // every number has an account here
+            }
+
+            @Override
             public AuthenticatedUser signIn(String phone, String pin) throws AuthenticationException {
                 if (pin.equals("111111")) {
                     await();
@@ -98,14 +103,15 @@ class AsyncNavigationRaceTest {
     @Test
     void slowSignInFinishingAfterAnotherUserSignedInDoesNotReplaceTheirSession() throws Exception {
         type("#phoneField", "03 123 456");
-        type("#pinField", "111111");
-        click("#signInButton");                 // Lina's sign-in is now stuck
+        click("#continueButton");
+        waitUntil(() -> exists("#pinField"));
+        type("#pinField", "111111");            // six digits: submitted at once; Lina's sign-in is now stuck
 
-        click("#goToSignUpButton");             // user walks away...
-        click("#backToSignInButton");           // ...and comes back to a new Sign In screen
+        click("#differentNumberButton");        // user walks away to a new Sign In screen
         type("#phoneField", "70 123 456");
-        type("#pinField", "222222");
-        click("#signInButton");                 // Rami signs in
+        click("#continueButton");
+        waitUntil(() -> exists("#pinField"));
+        type("#pinField", "222222");            // Rami signs in
         waitUntil(() -> "$20.50".equals(text("#balanceLabel")));
 
         releaseSlowCall.countDown();            // Lina's old result arrives
@@ -131,8 +137,9 @@ class AsyncNavigationRaceTest {
 
         click("#backToSignInButton");
         type("#phoneField", "70 123 456");
+        click("#continueButton");
+        waitUntil(() -> exists("#pinField"));
         type("#pinField", "222222");
-        click("#signInButton");
         waitUntil(() -> "$20.50".equals(text("#balanceLabel")));
 
         releaseSlowCall.countDown();            // registration result arrives late
@@ -155,6 +162,14 @@ class AsyncNavigationRaceTest {
 
     private Node lookup(String id) {
         return navigator.currentScreen().lookup(id);
+    }
+
+    private boolean exists(String id) {
+        try {
+            return onFx(() -> lookup(id) != null);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private void type(String id, String value) throws Exception {

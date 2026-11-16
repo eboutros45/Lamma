@@ -152,12 +152,26 @@ public final class AppNavigator {
         showAuth(new SignInView(this, phone, notice));
     }
 
+    /** Sign In, step 2: the PIN for a number that has an account (normalized). */
+    void showPinEntry(String normalizedPhone, String notice) {
+        showAuth(new PinEntryView(this, normalizedPhone, notice));
+    }
+
     void showSignUpChoice() {
-        showAuth(new SignUpChoiceView(this));
+        showSignUpChoice("");
+    }
+
+    /** Account type choice; {@code phone} (as typed at Sign In) is carried to the form. */
+    void showSignUpChoice(String phone) {
+        showAuth(new SignUpChoiceView(this, phone));
     }
 
     void showPersonalSignUp() {
-        showAuth(new PersonalSignUpView(this));
+        showPersonalSignUp("");
+    }
+
+    void showPersonalSignUp(String phone) {
+        showAuth(new PersonalSignUpView(this, phone));
     }
 
     /** Starts a session for the user who just authenticated and opens their dashboard. */

@@ -8,13 +8,13 @@ import javafx.scene.layout.VBox;
 /** Sign Up: choose Personal (available) or Business (Coming Soon - creates nothing). */
 final class SignUpChoiceView extends VBox {
 
-    SignUpChoiceView(AppNavigator navigator) {
+    SignUpChoiceView(AppNavigator navigator, String phone) {
         getStyleClass().add("auth-card");
 
         Button personal = Screens.optionTile(Icon.PERSON, "Personal",
                 "A wallet for yourself", "personalButton");
         personal.getStyleClass().add("choice-button");
-        personal.setOnAction(event -> navigator.showPersonalSignUp());
+        personal.setOnAction(event -> navigator.showPersonalSignUp(phone));
 
         Button business = Screens.optionTile(Icon.BUSINESS, "Business · Coming soon",
                 "Business accounts are not available yet", "businessButton");
@@ -26,7 +26,7 @@ final class SignUpChoiceView extends VBox {
                 "Business accounts are coming soon. For now you can create a Personal account."));
 
         Button back = Screens.linkButton("Already have an account? Sign In", "backToSignInButton");
-        back.setOnAction(event -> navigator.showSignIn("", ""));
+        back.setOnAction(event -> navigator.showSignIn(phone, ""));
 
         getChildren().addAll(Screens.appTitle(), Screens.title("Create your account"),
                 Screens.hint("What kind of account would you like to create?"), personal, business, message, back);

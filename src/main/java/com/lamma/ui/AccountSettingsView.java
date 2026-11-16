@@ -7,7 +7,6 @@ import javafx.application.Platform;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
-import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
 import javafx.scene.control.TextInputControl;
 import javafx.scene.layout.VBox;
@@ -15,7 +14,7 @@ import javafx.scene.layout.VBox;
 /**
  * Account settings from Profile: edit name, change phone number, change PIN. Changing the phone
  * number or the PIN asks for the current PIN, which the service checks (wrong PINs count towards
- * the sign-in lockout). PINs are typed in password fields and never shown.
+ * the sign-in lockout). PINs are typed in the six-box PIN entry (P05B) and never shown.
  */
 final class AccountSettingsView extends VBox {
 
@@ -67,10 +66,10 @@ final class AccountSettingsView extends VBox {
     private void showPhone() {
         TextField phone = field("newPhoneField", "");
         phone.setPromptText("e.g. 70 123 456 or +961 70 123 456");
-        PasswordField pin = pinField("currentPinField", "Current PIN");
+        PinInput pin = new PinInput("currentPinField", "Current PIN");
         Button save = Screens.primaryButton("Change Phone Number", "savePhoneButton");
         save.setOnAction(event -> submit(save, () -> {
-            AuthenticatedUser updated = navigator.accountService().changePhone(user.userId(), pin.getText(),
+            AuthenticatedUser updated = navigator.accountService().changePhone(user.userId(), pin.getPin(),
                     phone.getText());
             return () -> {
                 navigator.accountUpdated(user, updated);
@@ -86,13 +85,15 @@ final class AccountSettingsView extends VBox {
     }
 
     private void showPin() {
-        PasswordField current = pinField("currentPinField", "Current PIN");
-        PasswordField next = pinField("newPinField", "New PIN");
-        PasswordField confirm = pinField("confirmPinField", "Confirm new PIN");
+        PinInput current = new PinInput("currentPinField", "Current PIN");
+        PinInput next = new PinInput("newPinField", "New PIN");
+        PinInput confirm = new PinInput("confirmPinField", "Confirm new PIN");
+        current.setOnComplete(pin -> next.focusInput()); // move on to the next set of boxes
+        next.setOnComplete(pin -> confirm.focusInput());
         Button save = Screens.primaryButton("Change PIN", "savePinButton");
         save.setOnAction(event -> submit(save, () -> {
-            navigator.accountService().changePin(user.userId(), current.getText(), next.getText(),
-                    confirm.getText());
+            navigator.accountService().changePin(user.userId(), current.getPin(), next.getPin(),
+                    confirm.getPin());
             return () -> navigator.showProfile("Your PIN was changed. Use the new PIN the next time you sign in.");
         }, current, next, confirm));
         show("Change your PIN", "Enter your current PIN, then a new 6-digit PIN twice. "
@@ -104,7 +105,7 @@ final class AccountSettingsView extends VBox {
      * Runs the change in the background. On success the returned action runs (on the UI thread);
      * on failure the message is shown and the PIN fields are cleared.
      */
-    private void submit(Button save, Callable<Runnable> work, PasswordField... pins) {
+    private void submit(Button save, Callable<Runnable> work, PinInput... pins) {
         save.setDisable(true);
         Screens.showInfo(message, "Saving…");
         BackgroundWork.run(work,
@@ -118,8 +119,9 @@ final class AccountSettingsView extends VBox {
                         return;
                     }
                     Screens.showError(message, error);
-                    for (PasswordField p : pins) {
+                    for (PinInput p : pins) {
                         p.clear();
+                        p.showError(true);
                     }
                     save.setDisable(false);
                 });
@@ -139,13 +141,18 @@ final class AccountSettingsView extends VBox {
                     input.requestFocus();
                     return;
                 }
+                if (n instanceof VBox box && box.getChildren().size() > 1
+                        && box.getChildren().get(1) instanceof PinInput boxes) {
+                    boxes.focusInput();
+                    return;
+                }
             }
         });
     }
 
-    private static VBox labelled(String label, TextInputControl input) {
+    private static VBox labelled(String label, javafx.scene.Node input) {
         Label caption = Screens.caption(label);
-        caption.setLabelFor(input);
+        caption.setLabelFor(input instanceof PinInput boxes ? boxes.field() : input);
         return new VBox(4, caption, input);
     }
 
@@ -155,13 +162,6 @@ final class AccountSettingsView extends VBox {
         return field;
     }
 
-    private static PasswordField pinField(String id, String prompt) {
-        PasswordField field = new PasswordField();
-        field.setId(id);
-        field.setPromptText(prompt);
-        field.setAccessibleText(prompt);
-        return field;
-    }
 
     private boolean stillCurrent() {
         return navigator.session().isCurrent(user) && navigator.isShowing(this);

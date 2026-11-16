@@ -51,14 +51,42 @@ class AuthenticationIntegrationTest {
     }
 
     @Test
-    void wrongPinAndUnknownPhoneGiveTheSameGenericMessage() {
+    void wrongPinsSayHowManyAttemptsAreLeft() {
+        // P05B: the phone step already tells whether the number has an account, so the PIN step
+        // can be specific. An unknown number given straight to signIn keeps the generic message.
         AuthenticationException wrongPin = assertThrows(AuthenticationException.class,
                 () -> auth.signIn("03 123 456", "000000"));
+        assertEquals(AuthenticationService.wrongPinMessage(4), wrongPin.getMessage());
+        assertEquals("Incorrect PIN. 4 attempts left before sign-in is paused for 5 minutes.", wrongPin.getMessage());
         AuthenticationException unknownPhone = assertThrows(AuthenticationException.class,
                 () -> auth.signIn("03 999 999", "123456"));
+        assertEquals(AuthenticationService.INVALID_CREDENTIALS_MESSAGE, unknownPhone.getMessage());
+    }
 
-        assertEquals(AuthenticationService.INVALID_CREDENTIALS_MESSAGE, wrongPin.getMessage());
-        assertEquals(wrongPin.getMessage(), unknownPhone.getMessage());
+    @Test
+    void phoneStepFindsExistingAccountsInAnyFormatAndRefusesOthers() throws Exception {
+        assertEquals("9613123456", auth.findAccount("03 123 456"));
+        assertEquals("9613123456", auth.findAccount("+961 3 123 456"));
+        assertEquals(AuthenticationService.NO_ACCOUNT_MESSAGE,
+                assertThrows(ValidationException.class, () -> auth.findAccount("03 999 999")).getMessage());
+        assertThrows(ValidationException.class, () -> auth.findAccount("12ab"), "invalid format");
+        assertThrows(ValidationException.class, () -> auth.findAccount(""), "required");
+        assertEquals(0, failedAttempts(), "looking up a number is not a PIN attempt");
+    }
+
+    @Test
+    void phoneLookupsAreRateLimited() throws Exception {
+        for (int i = 0; i < AuthenticationService.MAX_LOOKUPS_PER_MINUTE - 4; i++) {
+            assertThrows(ValidationException.class, () -> auth.findAccount("03 999 999"));
+        }
+        for (int i = 0; i < 4; i++) {
+            auth.findAccount("03 123 456");
+        }
+        assertEquals(AuthenticationService.LOOKUP_LIMIT_MESSAGE,
+                assertThrows(ValidationException.class, () -> auth.findAccount("03 123 456")).getMessage(),
+                "even a real number is refused once the limit is reached");
+        clock.advance(Duration.ofSeconds(61));
+        assertEquals("9613123456", auth.findAccount("03 123 456"), "allowed again after a minute");
     }
 
     @Test
@@ -70,15 +98,17 @@ class AuthenticationIntegrationTest {
     @Test
     void fiveWrongPinsLockTheAccountEvenForTheCorrectPin() throws Exception {
         for (int i = 1; i < AuthenticationService.MAX_FAILED_ATTEMPTS; i++) {
-            assertThrows(AuthenticationException.class, () -> auth.signIn("03 123 456", "000000"));
+            AuthenticationException e = assertThrows(AuthenticationException.class, () -> auth.signIn("03 123 456", "000000"));
+            assertEquals(AuthenticationService.wrongPinMessage(AuthenticationService.MAX_FAILED_ATTEMPTS - i), e.getMessage());
             assertEquals(i, failedAttempts());
         }
-        assertThrows(AuthenticationException.class, () -> auth.signIn("03 123 456", "000000"));
+        assertEquals(AuthenticationService.LOCKED_MESSAGE, assertThrows(AuthenticationException.class,
+                () -> auth.signIn("03 123 456", "000000")).getMessage(), "the fifth wrong PIN locks");
 
-        // Locked: the correct PIN is refused with the same generic message.
+        // Locked: even the correct PIN is refused (without being checked).
         AuthenticationException locked = assertThrows(AuthenticationException.class,
                 () -> auth.signIn("03 123 456", "123456"));
-        assertEquals(AuthenticationService.INVALID_CREDENTIALS_MESSAGE, locked.getMessage());
+        assertEquals(AuthenticationService.LOCKED_MESSAGE, locked.getMessage());
 
         // Still locked one second before the lock ends.
         clock.advance(AuthenticationService.LOCKOUT_DURATION.minusSeconds(1));

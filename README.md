@@ -192,17 +192,18 @@ mvn test
 Two groups of tests are **skipped** unless their environment is available. Maven reports them as
 `Skipped`, not passed:
 
-- **183 MySQL integration tests** run only when `LAMMA_TEST_DB_*` is set (see below).
-- **71 JavaFX UI tests** (`DashboardNavigationTest`, `AsyncNavigationRaceTest`, `CashTopUpFlowTest`,
+- **185 MySQL integration tests** run only when `LAMMA_TEST_DB_*` is set (see below).
+- **78 JavaFX UI tests** (`DashboardNavigationTest`, `AsyncNavigationRaceTest`, `CashTopUpFlowTest`,
   `CardFlowsTest`, `SendMoneyFlowTest`, `AppShellNavigationTest`, `SharedWalletFlowTest`,
   `SharedWalletMembershipFlowTest`, `SharedWalletFundsFlowTest`, `AccountAndContactsFlowTest`,
-  `GiftWalletFlowTest`, `ExpenseFlowTest`, `GiftDeliveryFlowTest`) need a
+  `GiftWalletFlowTest`, `ExpenseFlowTest`, `GiftDeliveryFlowTest`, `PinInputTest`, `TwoStepSignInFlowTest`) need a
   graphical display. They always run on macOS and Windows; on Linux they need `DISPLAY` (a
   desktop session, or `xvfb-run`). No window is shown. `SharedWalletMembershipFlowTest` (3 tests),
   `SharedWalletFundsFlowTest` (2), `AccountAndContactsFlowTest` (2), `GiftWalletFlowTest` (2),
-  `ExpenseFlowTest` (2) and `GiftDeliveryFlowTest` (1) need MySQL as well and are counted here.
+  `ExpenseFlowTest` (2), `GiftDeliveryFlowTest` (1) and `TwoStepSignInFlowTest` (3) need MySQL as well and
+  are counted here.
 
-With neither available, expect `Tests run: 393, Failures: 0, Errors: 0, Skipped: 254`. To run the
+With neither available, expect `Tests run: 402, Failures: 0, Errors: 0, Skipped: 263`. To run the
 MySQL tests, point them at the test database:
 
 ```bash
@@ -211,8 +212,8 @@ LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
 mvn test
 ```
 
-Expect `Skipped: 71` if no display is available (the JavaFX tests), and with a display as well,
-`Tests run: 393, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
+Expect `Skipped: 78` if no display is available (the JavaFX tests), and with a display as well,
+`Tests run: 402, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
 `xvfb-run -a mvn test` (with the variables above).
 
 These tests drop and recreate all tables in that database, so they refuse to run unless the
@@ -496,12 +497,30 @@ Lebanese numbers must have 7 or 8 digits after the `0`/`961`. Any other bare dig
   16-byte salt per PIN and 600,000 iterations. It is stored as
   `pbkdf2-sha256$<iterations>$<salt>$<hash>`, and verification uses a constant-time comparison.
   The plaintext PIN is never stored or logged.
-- **Sign-in** gives the same message for an unknown phone number, a wrong PIN and a locked account,
-  and an unknown phone still costs one hash computation. This way neither the screen nor its
-  timing reveals which numbers are registered. Registration does say when a number is taken,
-  which is unavoidable if duplicates must be explained.
-- **Lockout**: after 5 wrong PINs in a row, the account is locked for 5 minutes. While locked,
-  even the correct PIN is refused. A successful sign-in resets the counter.
+- **Sign-in has two steps (P05B).**
+  1. **Phone number only.** Continue checks that an account uses the number. An unknown number
+     gets "No LAMMA account uses this phone number…" with **Create Account** (which keeps the
+     number) or **Try Again**; it is never sent to sign-up automatically.
+  2. **PIN.** Six boxes (masked), with the number shown masked ("+961 •• ••• 456"). The PIN is
+     submitted as soon as the sixth digit is typed or pasted, one request at a time. A wrong PIN
+     clears the boxes and says how many attempts are left.
+
+  **Forgot PIN** explains that LAMMA can't reset a PIN: there is no verified SMS or email
+  channel to prove the account is yours. **Use a different number** goes back to step 1.
+- **Account enumeration:** step 1 reveals whether a number has an account. This was accepted for
+  this project; Send Money and registration already reveal it. Step 1 is limited to 10 lookups per
+  minute on a computer, which slows down listing accounts. Because LAMMA connects to MySQL
+  directly, this limit can't stop someone who has the database credentials. Calling `signIn`
+  with an unknown number still costs one hash computation and gets a generic message.
+- **Lockout**: after 5 wrong PINs in a row, the account is locked for 5 minutes ("Too many
+  incorrect PINs…"). While locked, even the correct PIN is refused. A successful sign-in resets the
+  counter. Wrong current PINs in Profile → Account count towards the same lockout.
+- **Six-digit PINs only.** Every account has had a 6-digit PIN since accounts were introduced
+  (registration has always required exactly 6 digits), so there are no 4-digit accounts to
+  support. Sign-up, sign-in and Change PIN use the same six-box entry (`PinInput`). It accepts
+  digits only and keeps the caret at the end (typing advances, Backspace removes the previous
+  digit). Pasting fills the boxes. The digits are masked, can't be copied out, and are cleared when
+  the screen is left.
 - **Session**: the signed-in user is held in memory only (`UserSession`), so closing the app ends
   it. **Sign Out** clears it and returns to Sign In.
 - All SQL uses `PreparedStatement` parameters.
@@ -605,7 +624,7 @@ cp config/database.properties.example config/database.properties   # then set db
 mvn -q compile exec:java         # expect: OK: Connected to MySQL ... schema version 11
 LAMMA_TEST_DB_URL='jdbc:mysql://localhost:3306/lamma_test' \
 LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
-mvn test                         # expect: Tests run: 393, Failures: 0, Errors: 0, Skipped: 0
+mvn test                         # expect: Tests run: 402, Failures: 0, Errors: 0, Skipped: 0
 
 # 4. Run and try it
 mvn javafx:run
@@ -614,11 +633,14 @@ mvn javafx:run
 Manual check in the app:
 
 1. Sign Up → Business shows "Coming Soon".
-2. Personal: register with `03 123 456`. When you're returned to Sign In, sign in with
-   `+961 3 123 456`.
+2. Sign In with an unknown number (e.g. `03 123 456`) → "No LAMMA account…" → **Create Account**
+   (the number is kept) → Personal → register with a 6-digit PIN. You land on the PIN screen:
+   type the PIN in the six boxes (it signs in by itself). Sign out, then sign in again with
+   `+961 3 123 456` → Continue → PIN.
 3. Check that the dashboard shows your name, Personal Wallet and `$0.00`, then Sign Out.
    Register a second account, sign in with it, and check that it shows its own name.
-4. A wrong PIN 5 times → even the correct PIN is refused for 5 minutes.
+4. A wrong PIN 5 times ("Incorrect PIN. N attempts left…") → even the correct PIN is refused for
+   5 minutes. Also try pasting a PIN and using Backspace in the boxes.
 5. `brew services stop mysql` → restart the app: it shows an error and a **Try again** button,
    and does not crash.
 6. Receive Money → Cash Top-Up → `25.50` → Confirm. Check that the success screen and dashboard
