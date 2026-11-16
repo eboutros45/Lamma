@@ -2,6 +2,7 @@ package com.lamma.ui;
 
 import com.lamma.auth.AuthenticatedUser;
 import com.lamma.ui.Icons.Icon;
+import com.lamma.wallet.ExpenseService;
 import com.lamma.wallet.Money;
 import com.lamma.wallet.PersonalWallet;
 import com.lamma.wallet.SharedWallet;
@@ -31,6 +32,7 @@ final class WalletsView extends VBox {
     private final VBox sharedList = new VBox(10);
     private final Button newShared = Screens.linkButton("New shared wallet", "newSharedWalletButton");
     private final VBox invitations = new VBox(10);
+    private final VBox paymentRequests = new VBox(10);
 
     WalletsView(AppNavigator navigator, AuthenticatedUser user) {
         this.navigator = navigator;
@@ -53,11 +55,83 @@ final class WalletsView extends VBox {
         Button join = Screens.linkButton("Join with an invitation code", "joinWithCodeButton");
         join.setOnAction(event -> navigator.showJoinWallet());
 
-        getChildren().addAll(Screens.title("Wallets"), invitations, Screens.sectionTitle("Your wallets"),
+        paymentRequests.setId("paymentRequestsSection");
+        getChildren().addAll(Screens.title("Wallets"), invitations, paymentRequests, Screens.sectionTitle("Your wallets"),
                 personalWalletTile(), message, sharedHeader, sharedList, join);
         loadPersonal();
         loadShared();
         loadInvitations();
+        loadPaymentRequests(null);
+    }
+
+    // ---------- payment requests for shared expenses (P04C) ----------
+
+    private void loadPaymentRequests(String notice) {
+        long userId = user.userId(); // only this user's own requests
+        BackgroundWork.run(() -> navigator.expenseService().myPendingRequests(userId),
+                (List<ExpenseService.MyRequest> pending) -> {
+                    if (stillCurrent()) {
+                        showPaymentRequests(pending, notice);
+                    }
+                },
+                error -> {
+                    if (stillCurrent()) {
+                        Label problem = Screens.message("paymentRequestsMessage");
+                        Screens.showError(problem, error);
+                        paymentRequests.getChildren().setAll(problem);
+                    }
+                });
+    }
+
+    private void showPaymentRequests(List<ExpenseService.MyRequest> pending, String notice) {
+        paymentRequests.getChildren().clear();
+        Label status = Screens.message("paymentRequestsMessage");
+        if (notice != null) {
+            Screens.showSuccess(status, notice);
+        }
+        if (pending.isEmpty()) {
+            if (notice != null) {
+                paymentRequests.getChildren().add(status);
+            }
+            return;
+        }
+        VBox card = new VBox(8, Screens.sectionTitle("Payment requests (" + pending.size() + ")"));
+        card.getStyleClass().add("card");
+        for (ExpenseService.MyRequest r : pending) {
+            boolean reimbursement = r.collection() == ExpenseService.Collection.REIMBURSEMENT;
+            Label text = new Label(r.requesterName() + " asks you for " + Money.formatUsd(r.amount()) + " for \u201c"
+                    + r.title() + "\u201d in " + r.walletName() + (reimbursement ? " · pays back " + r.payToName()
+                    : " · goes into the shared wallet"));
+            text.setWrapText(true);
+            text.setMinWidth(0);
+            String payTo = reimbursement ? r.payToName() : "\u201c" + r.walletName() + "\u201d";
+            VBox actions = PaymentActions.build(navigator, user, r.requestId(), r.amount(), payTo,
+                    done -> {
+                        if (stillCurrent()) {
+                            loadPaymentRequests(done);
+                            loadPersonal();
+                            loadShared();
+                        }
+                    },
+                    error -> {
+                        if (stillCurrent()) {
+                            loadPaymentRequests(null);
+                            Label problem = Screens.message("paymentRequestsMessage");
+                            Screens.showError(problem, error);
+                            paymentRequests.getChildren().add(problem);
+                        }
+                    });
+            Button view = Screens.linkButton("View expense", "viewRequest-" + r.requestId());
+            view.setOnAction(event -> navigator.showExpense(r.expenseId(), r.walletId(), ""));
+            // View on its own line: visible during Pay's confirmation and never cut on narrow windows.
+            VBox body = new VBox(8, text, actions, view);
+            HBox.setHgrow(body, Priority.ALWAYS);
+            HBox row = new HBox(12, Screens.iconChip(Icon.SEND, false), body);
+            row.setAlignment(Pos.TOP_LEFT);
+            row.getStyleClass().add("activity-row");
+            card.getChildren().add(row);
+        }
+        paymentRequests.getChildren().addAll(card, status);
     }
 
     private Button personalWalletTile() {

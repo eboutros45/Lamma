@@ -874,4 +874,240 @@ surface and primary colours; checked again in light and dark.
 | Item | Value |
 |---|---|
 | Branch | `alpha2-development` (pushed) |
-| P04B commit | the commit that adds this section (hash given in the completion message) |
+| P04B commit | `0145fd5` |
+
+---
+
+## P04C — Shared Expenses & Splitting
+
+### 1. Summary of changes
+
+**Creating an expense** (shared wallet → Expenses → **Add Expense**; any current member):
+- Title, total, optional notes, and participants (current members, all ticked by default).
+- **Split equally** or with **custom amounts** (one field per participant). A live preview shows
+  every share; custom shares must add up exactly to the total.
+- **Collection:**
+  - **Into the shared wallet**: each participant pays their share from their Personal Wallet
+    into the shared wallet.
+  - **Reimburse the member who paid**: choose the member who paid the bill (not necessarily the
+    creator, nor even a participant). Their own share is marked **covered**, and the others pay
+    them back directly, Personal Wallet to Personal Wallet. Nothing passes through the shared
+    wallet, and the outside payment is **not** recorded as a LAMMA transaction. The screen says
+    so: "Nour Saad paid the full $50.00 outside LAMMA (not a LAMMA transaction)…".
+- **Creating charges nobody** and never spends the pooled balance: it only sends each participant
+  a PENDING payment request. Outgoing transfers from the shared wallet are still only the
+  P03 Withdraw / Send Money of the Owner and Spenders.
+
+**Splits:**
+- Exact cents with `BigDecimal`; no floating point anywhere.
+- **Equal:** any remaining cents go one each to the participants with the lowest user ids, so the
+  same input always gives the same split and it adds up exactly. A total too small to give
+  everyone at least $0.01 is refused.
+- **Custom:** every share ≥ $0.01, at most 2 decimals, and the shares add up exactly to the total.
+- The total follows the existing per-operation rules ($0.01–$10,000.00).
+
+**Answering a request.** Pending requests appear in a new **Payment requests (n)** card on
+**Wallets** ("Lina Haddad asks you for $30.00 for “Hotel” in Beirut Trip · goes into the shared
+wallet") and on the expense's own screen.
+- **Pay** asks for confirmation ("Pay $30.00 from your Personal Wallet to “Beirut Trip”?"). It
+  then makes one transfer, and the request becomes **Paid** only in the same transaction as that
+  transfer.
+- If the transfer fails (insufficient funds, database error), the request stays **Pending** and
+  can be retried.
+- **Decline** marks it **Declined**. A declined share is **not redistributed**: it stays visible
+  as Declined until the creator acts.
+
+**Revising and cancelling** (the creator, or the wallet's Owner):
+- **Revise Unpaid Shares:**
+  - The form shows every share that isn't paid, plus, for a reimbursement, the payer, who can
+    absorb part of it. Paid shares are listed but can't be changed.
+  - New amounts ($0.00 allowed) must add up to the same unpaid total.
+  - For each person: an unchanged pending request is kept; otherwise the old request is
+    **Cancelled** (kept in the history) and, if they still owe something, a new **Pending**
+    request replaces it (linked by `replaces_request_id`).
+  - Re-asking someone who declined for the same amount is allowed.
+  - Members who have left must be set to $0.00.
+- **Cancel Expense** (with confirmation): pending requests become **Cancelled**. Payments already
+  made stay where they are; nothing is refunded automatically.
+- Paid requests are immutable; cancelled or declined requests can't be paid.
+
+**Seeing it all:**
+- The shared wallet's **Expenses** card lists each expense with its total, collection method and
+  "$x outstanding" / Settled / Cancelled.
+- The expense screen shows: total and status; the collection method; Collected / Outstanding /
+  Covered with a progress bar; each participant's share and status (Paid, Pending, Declined,
+  Cancelled, Covered by payer, Nothing owed, "no longer a member"); and the **payment history**.
+  The history lists every request, including declined and replaced ones, with times and, when
+  paid, the transfer reference (**EXP-<request number>**).
+- Wallet histories show "Expense payment · From Nour Saad · … for “Hotel” · Ref EXP-7" (shared
+  wallet) and "Reimbursement · To Rami Khoury · … for “Taxi to the airport”" (personal).
+
+### 2. Schema (V010) and the LDM
+
+| Table | LDM | Columns used | Notes |
+|---|---|---|---|
+| `expenses` | EXPENSE | `expense_id`, `shared_wallet_id`, `title`, `total_amount`, `split_method`, `notes`, `expense_date`, `created_at` | Added: `created_by_user_id`, `collection_method`, `paid_by_user_id` (required exactly for reimbursements), `status` OPEN/CANCELLED, `cancelled_at`. **Not used:** `category_id`, `billing_period`, `confirmed_at`, `transaction_id` (a reimbursed bill was paid outside LAMMA, and pooled money is never spent automatically) |
+| `payment_requests` | PAYMENT_REQUEST | `request_id`, `requester_id`, `payer_id`, `destination_wallet_id`, `expense_id`, `transaction_id`, `amount`, `status`, `created_at`, `responded_at` | Added: `replaces_request_id` (revision history). **Not used:** `description`, `qr_type`, `qr_token`, `due_date`, `expires_at` (QR payment requests are out of scope) |
+| `expense_shares` | — (new) | `expense_id`, `user_id`, `amount`, `covered_by_payer` | The LDM can't record several participants' allocations or their revision. This is the minimum normalized addition |
+
+Constraints:
+- **Requests:**
+  - At most **one PENDING-or-PAID request per person per expense** (UNIQUE on a stored generated
+    column), so a share can't be collected twice.
+  - **PAID ⇔ linked to a transfer** (`transaction_id`, itself UNIQUE).
+  - Answered requests have `responded_at`; status values are checked; amounts > 0.
+- **Expenses:** totals > 0; a reimbursement must name a payer and a pooled expense must not;
+  status values are checked; `cancelled_at` is set exactly when cancelled.
+- **Transfers:** `transfer_kind` now also allows `EXPENSE_PAYMENT` and `REIMBURSEMENT`.
+
+**Transfers:** paying a request reuses P03's steps, which were extracted unchanged into a shared
+`LedgerTransfers` helper; the P03 tests still pass. A payment is the usual
+TRANSFER_OUT + TRANSFER_IN pair with one transfer id, its kind, and the paying member. The
+transfer's `request_id` is `expense-request-<request id>`, so even if every status check failed,
+the UNIQUE index would refuse a second transfer for the same request.
+
+**Locking order**, the same for create, pay, decline, revise and cancel:
+1. `wallets` rows in ascending id order, always including the shared wallet's row, which P02
+   membership changes and P03 transfers also lock;
+2. the `expenses` row;
+3. its `payment_requests`.
+
+The payer's membership (and, for a reimbursement, the payee's) and the request's status are
+re-read with those locks held.
+
+**Files**
+- New: `V010__add_shared_expenses.sql`, `wallet/ExpenseService`, `wallet/LedgerTransfers`,
+  `ui/CreateExpenseView`, `ui/ExpenseDetailView`, `ui/ReviseExpenseView`, `ui/PaymentActions`.
+- Changed:
+  - `SharedWalletFundsService` (uses `LedgerTransfers`)
+  - `WalletTransaction` / `TransactionRecords` (+ `expenseTitle`)
+  - `TransactionLabels` (expense labels, EXP references)
+  - `SharedWalletDetailView` (Expenses card; the "coming later" note removed)
+  - `WalletsView` (Payment requests card)
+  - `AppNavigator`, `SchemaMigrator`, `lamma.css` (radio buttons)
+  - `TransferService`, `TopUpService` (READ COMMITTED; see §3)
+  - the test database helpers
+
+### 3. Build and test results
+
+| Configuration | Run | Passed | Failed | Skipped |
+|---|---|---|---|---|
+| Baseline at `0145fd5` (P04B), MySQL and display | 355 | 355 | 0 | 0 |
+| No MySQL settings, no display | 379 | 136 | 0 | 243 |
+| MySQL settings, no display | 379 | 309 | 0 | 70 |
+| **MySQL settings and a display (virtual display)** | **379** | **379** | **0** | **0** |
+
+New tests (24):
+
+| Class | Tests | Needs | Covers |
+|---|---|---|---|
+| `ExpenseSplitTest` | 5 | — | Equal split with remainder cents to the lowest ids, independent of input order; exact sums for hundreds of totals and 1–3 people, shares never more than a cent apart; too small to split; custom shares (sum mismatch, 3 decimals, zero share, missing or extra amounts); field validation |
+| `ExpenseServiceIntegrationTest` | 13 | MySQL | **Pooled:** creating charges nobody; paying moves the share into the shared wallet and links the request to its transfer; histories show "Hotel"; settled when all have paid. **Reimbursement:** the payer's share is covered, the others pay the payer's Personal Wallet directly, the shared wallet is untouched, no transaction for the outside payment; a payer who isn't a participant. **Decline → revise:** not redistributed; paid shares can't be revised; sums must match; only creator or Owner; superseded requests can't be paid; history and links kept; re-asking for the same amount; the payer absorbing a share. **Cancel:** paid stays, the rest closed, nothing payable. **Authorization:** outsiders, non-participants and other people's requests refused. **Member removed / payee left:** can't pay, history kept, must be revised to $0.00. **Insufficient funds** leaves the request open and a retry works. **Rollback** when the second row fails: still Pending, nothing moved, retry works. **10 identical payments at once → 1 transfer, 9 "already paid"**. **Pay racing cancel or revise (8 rounds)** → always consistent. **A cancellation in progress is waited for, then respected** (deterministic). **Expense payments, P03 withdrawals and personal Send Money at once** → all succeed, no deadlock, money constant |
+| `ExpenseSchemaIntegrationTest` | 3 | MySQL | The database refuses a second open request for a person, PAID without a transfer, inconsistent answer times, unknown statuses, zero amounts, a reimbursement without a payer (and a pooled expense with one), cancelled without a time, and unknown transfer kinds |
+| `TransferServiceIntegrationTest` (+1) | 1 | MySQL | **Regression:** 24 personal transfers on 6 unrelated wallet pairs at once all succeed (see below) |
+| `ExpenseFlowTest` | 2 | MySQL + display | Real screens, three members. **Pooled:** validation, then create (preview $30 each). Nour declines from Wallets; Lina sees "Declined" and revises (a wrong sum is refused, then Rami $45, Nour $15). Lina pays on the expense screen with confirmation; Rami and Nour pay from Wallets (**a double click pays once**). Settled; the wallet activity shows "Expense payment … for “Hotel”"; the history shows the decline and **Ref EXP-** references. **Custom reimbursement:** a custom sum mismatch is refused; Nour is the payer and her share covered; the outside-payment note is shown; Rami pays on the expense screen and Lina from Wallets; Nour's history shows "Reimbursement … for “Dinner”"; money is constant |
+
+**Existing tests changed:** the UI tests give the screens an expense service (stubs return empty
+lists). `SharedWalletFlowTest` now expects the Add Expense button and "No expenses yet."
+
+**A pre-existing concurrency bug found and fixed.** A P04C stress test failed once with a database
+error on a personal Send Money. InnoDB's deadlock report showed the cause: the duplicate-request
+check (`SELECT … WHERE request_id = ? FOR UPDATE`, used since Alpha 2 by top-ups, Send Money and
+P03) takes a **gap lock** on the unique `request_id` index under MySQL's default REPEATABLE READ.
+Two transfers on **unrelated wallets**, which wallet locks don't serialize, could gap-lock the
+same range and block each other's inserts; MySQL then rolled one back. No money was ever wrong,
+but the user got a spurious failure.
+- **The fix:** the four money services run their transaction at **READ COMMITTED**, where that
+  read takes no gap lock. Every decision is still made on rows locked with `FOR UPDATE` /
+  `FOR SHARE`, which read the latest committed data at either level.
+- **The proof:** a new regression test fails **3 out of 3** times without the fix (a deadlock
+  rolls back one transfer) and passes 3 out of 3 with it.
+
+**Mutation checks** (each change reverted):
+
+| Change | Result |
+|---|---|
+| A PAID request treated as payable | 10 identical payments → database errors (test fails) |
+| Paid shares included in a revision | the revision test fails |
+| No membership check for the payer | the removed-member test fails |
+| Request row read without a lock | **not detected**, expected: every operation that changes a request first locks the shared wallet's row and the expense, so this lock is a second layer |
+| No shared-wallet / expense / request locks in `pay()` | the deterministic cancellation test fails (the payment proceeds and hits a database error instead of the clean "request closed") |
+
+**Problems found in screenshots and fixed:**
+- Expense payments showed the same reference "EXPENSER" (the first 8 characters of
+  `expense-request-…`); they now show **EXP-<request number>**.
+- Every paid request was labelled "revised request": a `wasNull()` check after the wrong column
+  read a NULL `replaces_request_id` as 0. A test now checks it.
+- On narrow windows the Pay confirmation text was squeezed to one character per line and "View
+  expense" was cut to "Vi…"; confirmations now put the question above the buttons.
+- An empty message line left a gap on the expense screen.
+
+**Upgrade check:** a database built by `0145fd5` (schema 9) contained users, a top-up, a personal
+transfer, a gift wallet, membership, a contribution, a withdrawal and a contact. It was upgraded
+to 10:
+- All **26 existing rows were identical**, every column (only the `schema_version` row was added).
+- A reimbursement was created, paid and settled on the upgraded data, and the shared history
+  still shows the P03 rows.
+- Total money stayed at $80.00, and re-running the migration applied nothing.
+
+**Real-app multi-user scenario on Linux** (the real `lamma` database, upgraded to 10 on launch):
+
+| Step | Who | Result |
+|---|---|---|
+| "Villa deposit", $60, equal, into Beirut Trip | Lina (light, wide) | 2 × $30 pending; nobody charged |
+| Decline from Wallets | Rami (dark, compact) | Declined, still shown as his share |
+| Revise to Lina $40 / Rami $20; Lina pays $40 on the expense screen | Lina | old requests cancelled, new ones issued; $40 in |
+| Pay $20 from Wallets | Rami | Beirut Trip $115.00; Settled |
+| "Taxi to the airport", $24, equal, **reimburse Rami** | Rami | Rami covered $12; Lina asked for $12 |
+| Pay Rami back from Wallets | Lina | Rami +$12 straight into his Personal Wallet |
+| Two small check expenses ("Groceries", "Snacks"): declined, then cancelled | both | no money moved |
+
+- **Database afterwards:** Lina $69.00, Rami $33.50, Beirut Trip $115.00. **Total money $217.50
+  before and after.**
+- **Request rows:** CANCELLED (superseded), DECLINED, then three PAID requests, each linked to
+  its transfer, with `replaces_request_id` set on the revised ones.
+- The dev database keeps these expenses.
+
+### 4. Known limitations
+
+1. **Paid shares are final:** after someone has paid, their share can't be increased. If
+   others have already paid when someone declines, the creator can re-ask the person who declined,
+   absorb it (reimbursement payer), or cancel the expense; paid members can't be asked for more.
+   This follows "paid requests are immutable" and "never collect a share twice".
+2. **Members who leave:** a member who leaves or is removed keeps their requests in the history,
+   but can't pay them (nor be paid back for a reimbursement). The creator revises their share to
+   $0.00.
+3. **Who can manage:** only the creator **or the Owner** can revise or cancel (the Owner too, so an
+   expense isn't stuck if its creator leaves).
+4. **No refunds:** cancelling never refunds payments already made; they were real transfers.
+5. **Unused LDM columns:** categories, billing periods, due dates, expiry and QR payment requests
+   aren't implemented.
+6. **No notifications:** pending requests are shown when Wallets or the expense is opened.
+7. **Same CSS warning:** the harmless JavaFX CSS warning from P02 appears 18 times in the GUI
+   test run (16 before; `ExpenseFlowTest` also switches accounts). The cause is the same.
+
+### 5. Windows manual-testing steps
+
+1. `mvn -q compile exec:java` → `… schema version 10 (1 migration(s) applied now)`.
+2. `mvn test` (with the `LAMMA_TEST_DB_*` variables) → `Tests run: 379, Failures: 0, Errors: 0, Skipped: 0`.
+3. With three members A (Owner), B and C, each with some money: A → shared wallet → **Add Expense**
+   "Hotel" $90, equal, into the wallet → the preview shows $30 each → Create → nobody's balance
+   changes.
+4. C → Wallets → **Payment requests** → **Decline**. A → the expense shows C "Declined" →
+   **Revise Unpaid Shares** → B 45, C 15 (a wrong sum is refused) → Save.
+5. A pays on the expense screen (confirmation shown). B and C pay from Wallets; double-click
+   Confirm once → only one payment. The expense becomes **Settled** and the shared wallet holds $90.
+6. B → **Add Expense** "Dinner" $50, custom A 20 / B 18 / C 12, **Reimburse** C → the screen says C
+   paid outside LAMMA and C's $12 is covered. A and B pay → C's Personal Wallet goes up by $38;
+   the shared wallet doesn't change.
+7. Create a small expense and **Cancel** it → requests closed, nothing paid.
+8. Check Light/Dark and a narrow window: the Payment requests card, the confirmations and the
+   expense screen stay readable.
+
+### 6. Commit
+
+| Item | Value |
+|---|---|
+| Branch | `alpha2-development` (pushed) |
+| P04C commit | the commit that adds this section (hash given in the completion message) |
+| `main` | unchanged; nothing merged |

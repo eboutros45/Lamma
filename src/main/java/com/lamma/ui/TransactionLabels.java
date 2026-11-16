@@ -23,6 +23,8 @@ final class TransactionLabels {
             return switch (t.transferKind()) {
                 case WalletTransaction.KIND_CONTRIBUTION -> "Contribution";
                 case WalletTransaction.KIND_WITHDRAWAL -> "Withdrawal";
+                case WalletTransaction.KIND_EXPENSE_PAYMENT -> "Expense payment";
+                case WalletTransaction.KIND_REIMBURSEMENT -> "Reimbursement";
                 default -> t.isCredit() ? "Money Received" : "Money Sent";
             };
         }
@@ -59,6 +61,9 @@ final class TransactionLabels {
             if (WalletTransaction.KIND_SHARED_SEND.equals(t.transferKind()) && t.initiatedByName() != null) {
                 text += (t.isCredit() ? " \u00b7 sent by " : " \u00b7 by ") + t.initiatedByName();
             }
+            if (t.expenseTitle() != null) {
+                text += " \u00b7 for \u201c" + t.expenseTitle() + "\u201d";
+            }
             return text + " \u00b7 " + when + " \u00b7 Ref " + reference(t);
         }
         if (t.counterpartyName() != null) {
@@ -76,7 +81,18 @@ final class TransactionLabels {
      * rows of the transfer share (the full id is stored).
      */
     static String reference(WalletTransaction t) {
-        String id = t.transferId() == null ? "" : t.transferId().replace("-", "");
+        return reference(t.transferId());
+    }
+
+    /**
+     * The short reference for a transfer id. Expense payments use their payment request's number
+     * ("EXP-12"), because their transfer id is derived from it; others the first 8 characters.
+     */
+    static String reference(String transferId) {
+        if (transferId != null && transferId.startsWith(com.lamma.wallet.ExpenseService.TRANSFER_PREFIX)) {
+            return "EXP-" + transferId.substring(com.lamma.wallet.ExpenseService.TRANSFER_PREFIX.length());
+        }
+        String id = transferId == null ? "" : transferId.replace("-", "");
         return id.substring(0, Math.min(8, id.length())).toUpperCase(Locale.ROOT);
     }
 

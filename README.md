@@ -27,6 +27,11 @@ personal wallet balance and sign out. Alpha 2 adds:
 - **Gift wallets** (P04B): when creating a shared wallet, switch on **This is a gift wallet** and
   choose a registered LAMMA user as the recipient. Members see "Gift for …" on the wallet. It is
   information only: the recipient doesn't become a member and nothing is paid out.
+- **Shared expenses** (P04C): any member adds an expense to a shared wallet, split equally or with
+  custom amounts, and collected either into the shared wallet or by reimbursing the member who
+  paid the bill. Each participant gets a payment request (under Wallets → Payment requests and on
+  the expense) and pays or declines it; nobody is charged automatically. The creator can revise
+  declined shares or cancel the expense.
 
 All money is simulated. Business accounts are still "Coming Soon".
 
@@ -74,7 +79,7 @@ JavaFX and the MySQL JDBC driver are downloaded by Maven automatically.
    mvn -q compile exec:java
    ```
 
-   Expected output: `OK: Connected to MySQL 8.0.x, database 'lamma', schema version 9 ...`
+   Expected output: `OK: Connected to MySQL 8.0.x, database 'lamma', schema version 10 ...`
 
    > Once a database has been upgraded to version 3 or later, the Alpha 1 app on `main` refuses to start
    > against it ("schema is newer than this application"). If you switch between `main` and
@@ -178,17 +183,17 @@ mvn test
 Two groups of tests are **skipped** unless their environment is available. Maven reports them as
 `Skipped`, not passed:
 
-- **156 MySQL integration tests** run only when `LAMMA_TEST_DB_*` is set (see below).
-- **68 JavaFX UI tests** (`DashboardNavigationTest`, `AsyncNavigationRaceTest`, `CashTopUpFlowTest`,
+- **173 MySQL integration tests** run only when `LAMMA_TEST_DB_*` is set (see below).
+- **70 JavaFX UI tests** (`DashboardNavigationTest`, `AsyncNavigationRaceTest`, `CashTopUpFlowTest`,
   `CardFlowsTest`, `SendMoneyFlowTest`, `AppShellNavigationTest`, `SharedWalletFlowTest`,
   `SharedWalletMembershipFlowTest`, `SharedWalletFundsFlowTest`, `AccountAndContactsFlowTest`,
-  `GiftWalletFlowTest`) need a
+  `GiftWalletFlowTest`, `ExpenseFlowTest`) need a
   graphical display. They always run on macOS and Windows; on Linux they need `DISPLAY` (a
   desktop session, or `xvfb-run`). No window is shown. `SharedWalletMembershipFlowTest` (3 tests),
-  `SharedWalletFundsFlowTest` (2), `AccountAndContactsFlowTest` (2) and `GiftWalletFlowTest` (2) need
-  MySQL as well and are counted here.
+  `SharedWalletFundsFlowTest` (2), `AccountAndContactsFlowTest` (2), `GiftWalletFlowTest` (2) and
+  `ExpenseFlowTest` (2) need MySQL as well and are counted here.
 
-With neither available, expect `Tests run: 355, Failures: 0, Errors: 0, Skipped: 224`. To run the
+With neither available, expect `Tests run: 379, Failures: 0, Errors: 0, Skipped: 243`. To run the
 MySQL tests, point them at the test database:
 
 ```bash
@@ -197,8 +202,8 @@ LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
 mvn test
 ```
 
-Expect `Skipped: 68` if no display is available (the JavaFX tests), and with a display as well,
-`Tests run: 355, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
+Expect `Skipped: 70` if no display is available (the JavaFX tests), and with a display as well,
+`Tests run: 379, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
 `xvfb-run -a mvn test` (with the variables above).
 
 These tests drop and recreate all tables in that database, so they refuse to run unless the
@@ -235,7 +240,7 @@ MySQL                                 users, wallets, schema_version
 - `src/main/resources/db/migration/`: versioned schema scripts.
 - `database/create_database.sql`: one-time admin setup (database and user).
 
-## Database schema (version 9)
+## Database schema (version 10)
 
 ### `users` (USER)
 
@@ -370,6 +375,29 @@ Each user's own contact book: `contact_id`, `owner_user_id` (FK → `users`), `d
 (`owner_user_id`, `phone_number`) means one entry per number per user, so importing a file twice
 adds nothing. Every query filters by the session's user id.
 
+### Shared expenses (V010, LDM EXPENSE / PAYMENT_REQUEST)
+
+- **`expenses`**: wallet, creator, title (≤80), total (> 0), notes (≤500), `split_method`
+  (`EQUAL` / `CUSTOM`), `collection_method` (`SHARED_WALLET` / `REIMBURSEMENT`), `paid_by_user_id`
+  (required exactly for reimbursements), `status` (`OPEN` / `CANCELLED`), `expense_date`,
+  `created_at`, `cancelled_at`.
+- **`expense_shares`** (not in the LDM): each participant's current share, adding up to the total.
+  `covered_by_payer` marks the reimbursed payer's own part.
+- **`payment_requests`**: one per participant's share: `requester_id`, `payer_id`,
+  `destination_wallet_id` (the shared wallet, or the payer's Personal Wallet for a reimbursement),
+  `amount`, `status` (`PENDING` / `PAID` / `DECLINED` / `CANCELLED`), `transaction_id` (the transfer
+  that paid it, required exactly when PAID), `replaces_request_id` (a revised request), timestamps.
+  At most one PENDING-or-PAID request per person per expense (UNIQUE on a generated column).
+- Paying a request is one ordinary transfer (`transfer_kind` `EXPENSE_PAYMENT` or
+  `REIMBURSEMENT`) made with the same steps as shared-wallet money. The request becomes PAID in
+  the same transaction, and the transfer's `request_id` is `expense-request-<id>` (UNIQUE), so a
+  request can never be paid twice. A bill paid outside LAMMA is never recorded as a transaction.
+- Equal splits are in cents; any remaining cents go one each to the participants with the
+  lowest user ids, so shares always add up exactly. Custom shares must add up to the total.
+- Money transactions (top-ups, Send Money, shared-wallet money, expense payments) run at READ
+  COMMITTED so that transfers on unrelated wallets can't deadlock on the request-id index. Every
+  check is still made on rows locked with `FOR UPDATE` / `FOR SHARE`.
+
 ### `payment_cards` (Alpha 2 P02)
 
 Saved cards hold **metadata only**. There is no column for the card number or CVV.
@@ -409,9 +437,10 @@ first.
 | 7 | `V007__add_shared_wallet_invitations.sql` | `shared_wallets.invite_token`, `shared_wallet_invitations`, `shared_wallet_join_requests` (Shared Wallet P02) |
 | 8 | `V008__add_shared_wallet_transfers.sql` | `wallet_transactions.transfer_kind`, `wallet_transactions.initiated_by_user_id` (Shared Wallet P03) |
 | 9 | `V009__add_contacts.sql` | `contacts` (P04A) |
+| 10 | `V010__add_shared_expenses.sql` | `expenses`, `expense_shares`, `payment_requests`; transfer kinds `EXPENSE_PAYMENT`, `REIMBURSEMENT` (P04C) |
 
 When adding a table that references `users`, `wallets`, `wallet_transactions`, `payment_cards`, `shared_wallets`, `shared_wallet_members`, `shared_wallet_invitations` or
-`shared_wallet_join_requests` or `contacts`, also add it to
+`shared_wallet_join_requests`, `contacts`, `expenses`, `expense_shares` or `payment_requests`, also add it to
 the `DROP TABLE` lists in `src/test/java/com/lamma/testsupport/TestDatabase.java` and
 `SchemaConstraintsIntegrationTest`, child tables first.
 
@@ -549,10 +578,10 @@ mysql -u root < database/create_database.sql
 cp config/database.properties.example config/database.properties   # then set db.password
 
 # 3. Verify
-mvn -q compile exec:java         # expect: OK: Connected to MySQL ... schema version 9
+mvn -q compile exec:java         # expect: OK: Connected to MySQL ... schema version 10
 LAMMA_TEST_DB_URL='jdbc:mysql://localhost:3306/lamma_test' \
 LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
-mvn test                         # expect: Tests run: 355, Failures: 0, Errors: 0, Skipped: 0
+mvn test                         # expect: Tests run: 379, Failures: 0, Errors: 0, Skipped: 0
 
 # 4. Run and try it
 mvn javafx:run

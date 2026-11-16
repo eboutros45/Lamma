@@ -7,6 +7,7 @@ import com.lamma.wallet.Money;
 import com.lamma.wallet.SharedWallet;
 import com.lamma.wallet.SharedWalletMembershipService.JoinRequest;
 import com.lamma.wallet.SharedWalletMembershipService.OutgoingInvitation;
+import com.lamma.wallet.ExpenseService;
 import com.lamma.wallet.SharedWalletService;
 import com.lamma.wallet.WalletTransaction;
 import java.math.BigDecimal;
@@ -32,6 +33,8 @@ import javafx.scene.layout.VBox;
  * leave. Owner tools are hidden from members, but the service checks every action against the
  * database anyway. After each action the screen reloads from the database.
  *
+ * <p>Expenses (P04C): every member sees the wallet's expenses and can add one.
+ *
  * <p>Money: every member can Contribute; the Owner and Spenders can also Withdraw and Send
  * Money. Buttons a member may not use are not shown, and the service re-checks the role in the
  * database for every operation. The latest activity is shown, with "View all" for the history.
@@ -40,7 +43,7 @@ final class SharedWalletDetailView extends VBox {
 
     /** Everything this screen shows; the Owner-only lists are empty for other members. */
     private record Data(SharedWallet.Details details, List<JoinRequest> requests, List<OutgoingInvitation> invitations,
-                        List<WalletTransaction> recent) {
+                        List<WalletTransaction> recent, List<ExpenseService.ExpenseSummary> expenses) {
     }
 
     /** How many transactions the details screen shows; "View all" shows the full history. */
@@ -70,12 +73,13 @@ final class SharedWalletDetailView extends VBox {
         BackgroundWork.run(() -> {
                     SharedWallet.Details details = navigator.sharedWalletService().details(userId, walletId);
                     List<WalletTransaction> recent = navigator.fundsService().history(userId, walletId, RECENT_LIMIT);
+                    List<ExpenseService.ExpenseSummary> expenses = navigator.expenseService().list(userId, walletId);
                     if (details.wallet().myRole() != MemberRole.OWNER) {
-                        return new Data(details, List.of(), List.of(), recent);
+                        return new Data(details, List.of(), List.of(), recent, expenses);
                     }
                     return new Data(details,
                             navigator.membershipService().pendingJoinRequests(userId, walletId),
-                            navigator.membershipService().pendingInvitations(userId, walletId), recent);
+                            navigator.membershipService().pendingInvitations(userId, walletId), recent, expenses);
                 },
                 (Data data) -> {
                     if (stillCurrent()) {
@@ -128,6 +132,7 @@ final class SharedWalletDetailView extends VBox {
         if (owner && !data.requests().isEmpty()) {
             getChildren().add(joinRequests(data.requests()));
         }
+        getChildren().add(expenses(data.expenses()));
         getChildren().add(recentActivity(data.recent()));
         getChildren().add(members(data.details(), owner));
         if (owner && !data.invitations().isEmpty()) {
@@ -136,10 +141,7 @@ final class SharedWalletDetailView extends VBox {
         if (!owner) {
             getChildren().add(leaveArea());
         }
-        // Plain text, not a button: this doesn't exist yet.
-        Label next = Screens.hint("Shared expenses will be added in a later update.");
-        next.setId("sharedWalletComingNext");
-        getChildren().add(next);
+
     }
 
     // ---------- sections ----------
@@ -202,6 +204,50 @@ final class SharedWalletDetailView extends VBox {
             }
         });
         return grid;
+    }
+
+    /** The wallet's expenses (newest first), each opening its own screen, and Add Expense. */
+    private VBox expenses(List<ExpenseService.ExpenseSummary> expenses) {
+        Button add = Screens.withIcon(new Button("Add Expense"), Icon.ADD);
+        add.setId("addExpenseButton");
+        add.getStyleClass().add("secondary-action-button");
+        add.setOnAction(event -> navigator.showCreateExpense(walletId));
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        HBox title = new HBox(Screens.sectionTitle("Expenses"), spacer, Screens.keepWidth(add));
+        title.setAlignment(Pos.CENTER_LEFT);
+        VBox list = new VBox();
+        list.setId("expenseList");
+        if (expenses.isEmpty()) {
+            list.getChildren().add(Screens.hint("No expenses yet. Add one to split a bill between members."));
+        }
+        for (ExpenseService.ExpenseSummary e : expenses) {
+            Label name = new Label(e.title());
+            name.getStyleClass().add("activity-type");
+            String how = e.collection() == ExpenseService.Collection.SHARED_WALLET ? "Into the wallet"
+                    : "Reimburse " + e.paidByName();
+            String state = e.isCancelled() ? "Cancelled" : e.isSettled() ? "Settled"
+                    : Money.formatUsd(e.outstanding()) + " outstanding";
+            Label detail = Screens.caption(how + " · " + state);
+            detail.getStyleClass().add("hint");
+            VBox texts = new VBox(2, name, detail);
+            texts.setMinWidth(0);
+            HBox.setHgrow(texts, Priority.ALWAYS);
+            Label amount = new Label(Money.formatUsd(e.total()));
+            amount.setMinWidth(Region.USE_PREF_SIZE);
+            HBox content = new HBox(12, texts, amount);
+            content.setAlignment(Pos.CENTER_LEFT);
+            Button open = new Button();
+            open.setId("expense-" + e.expenseId());
+            open.setGraphic(content);
+            open.setContentDisplay(javafx.scene.control.ContentDisplay.GRAPHIC_ONLY);
+            open.getStyleClass().add("option-tile");
+            open.setMaxWidth(Double.MAX_VALUE);
+            content.prefWidthProperty().bind(open.widthProperty().subtract(34));
+            open.setOnAction(event -> navigator.showExpense(e.expenseId(), walletId, ""));
+            list.getChildren().add(open);
+        }
+        return card(title, list);
     }
 
     private VBox recentActivity(List<WalletTransaction> recent) {

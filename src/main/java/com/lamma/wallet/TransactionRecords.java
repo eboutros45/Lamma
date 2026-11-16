@@ -24,7 +24,12 @@ final class TransactionRecords {
             + "   LEFT JOIN users cu ON cu.user_id = cw.owner_user_id"
             + "   WHERE cw.wallet_id = t.counterparty_wallet_id) AS counterparty_name,"
             + " (SELECT CONCAT(iu.first_name, ' ', iu.last_name) FROM users iu"
-            + "   WHERE iu.user_id = t.initiated_by_user_id) AS initiated_by_name";
+            + "   WHERE iu.user_id = t.initiated_by_user_id) AS initiated_by_name,"
+            + " (SELECT e.title FROM wallet_transactions d"
+            + "   JOIN payment_requests pr ON pr.transaction_id = d.transaction_id"
+            + "   JOIN expenses e ON e.expense_id = pr.expense_id"
+            + "   WHERE t.transfer_kind IN ('EXPENSE_PAYMENT', 'REIMBURSEMENT') AND d.transfer_id = t.transfer_id"
+            + "   AND d.transaction_type = 'TRANSFER_OUT') AS expense_title";
 
     private TransactionRecords() {
     }
@@ -46,7 +51,8 @@ final class TransactionRecords {
                 counterparty == 0 ? null : counterparty, // NULL reads as 0; wallet ids start at 1
                 rs.getString("counterparty_name"),
                 rs.getString("transfer_kind"),
-                rs.getString("initiated_by_name"));
+                rs.getString("initiated_by_name"),
+                rs.getString("expense_title"));
     }
 
     /** Inserts one row (not a shared-wallet transfer) and returns its new transaction id. */

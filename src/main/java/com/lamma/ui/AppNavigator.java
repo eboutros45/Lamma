@@ -10,6 +10,7 @@ import com.lamma.cards.PaymentCardService;
 import com.lamma.db.Database;
 import com.lamma.ui.AppShell.Destination;
 import com.lamma.contacts.ContactService;
+import com.lamma.wallet.ExpenseService;
 import com.lamma.wallet.SharedWalletFundsService;
 import com.lamma.wallet.SharedWalletMembershipService;
 import com.lamma.wallet.SharedWalletService;
@@ -56,6 +57,7 @@ public final class AppNavigator {
     private SharedWalletFundsService fundsService;
     private AccountService accountService;
     private ContactService contactService;
+    private ExpenseService expenseService;
 
     /** Normal start-up: shows the startup screen, which connects to the database. */
     public AppNavigator(Stage stage) {
@@ -127,6 +129,7 @@ public final class AppNavigator {
         this.fundsService = new SharedWalletFundsService(database);
         this.accountService = new AccountService(database, pinHasher);
         this.contactService = new ContactService(database);
+        this.expenseService = new ExpenseService(database);
         showSignIn("", "");
     }
 
@@ -301,6 +304,29 @@ public final class AppNavigator {
         }
     }
 
+    /** New shared expense; Back returns to the wallet. */
+    void showCreateExpense(long walletId) {
+        if (requireSession()) {
+            showFlow(new CreateExpenseView(this, user(), walletId), "New Expense", () -> showSharedWalletDetail(walletId), true);
+        }
+    }
+
+    /** One expense (with an optional success message); Back returns to its wallet. */
+    void showExpense(long expenseId, long walletId, String notice) {
+        if (requireSession()) {
+            showFlow(new ExpenseDetailView(this, user(), expenseId, walletId, notice), "Expense",
+                    () -> showSharedWalletDetail(walletId), true);
+        }
+    }
+
+    /** Revise an expense's unpaid shares; Back returns to the expense. */
+    void showReviseExpense(long expenseId, long walletId) {
+        if (requireSession()) {
+            showFlow(new ReviseExpenseView(this, user(), expenseId, walletId), "Revise Expense",
+                    () -> showExpense(expenseId, walletId, ""), true);
+        }
+    }
+
     /** Open an invitation code to ask to join; Back returns to Wallets. */
     void showJoinWallet() {
         if (requireSession()) {
@@ -411,6 +437,15 @@ public final class AppNavigator {
     /** For automated UI tests: supplies the contact book service. */
     void useContactService(ContactService service) {
         this.contactService = service;
+    }
+
+    ExpenseService expenseService() {
+        return expenseService;
+    }
+
+    /** For automated UI tests: supplies the shared expense service. */
+    void useExpenseService(ExpenseService service) {
+        this.expenseService = service;
     }
 
     // ---------- internals ----------

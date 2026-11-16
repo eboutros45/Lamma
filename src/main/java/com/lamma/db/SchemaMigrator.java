@@ -40,7 +40,8 @@ public final class SchemaMigrator {
             "V006__add_shared_wallets.sql",
             "V007__add_shared_wallet_invitations.sql",
             "V008__add_shared_wallet_transfers.sql",
-            "V009__add_contacts.sql"
+            "V009__add_contacts.sql",
+            "V010__add_shared_expenses.sql"
     );
 
     private final Database database;

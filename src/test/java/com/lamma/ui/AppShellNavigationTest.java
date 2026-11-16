@@ -111,6 +111,17 @@ class AppShellNavigationTest {
                     return List.of();
                 }
             });
+            n.useExpenseService(new com.lamma.wallet.ExpenseService(null) {
+                @Override
+                public List<com.lamma.wallet.ExpenseService.ExpenseSummary> list(long userId, long walletId) {
+                    return List.of();
+                }
+
+                @Override
+                public List<com.lamma.wallet.ExpenseService.MyRequest> myPendingRequests(long userId) {
+                    return List.of();
+                }
+            });
             return n;
         });
         onFx(() -> {

@@ -558,3 +558,19 @@
 .check-box:selected .mark {
     -fx-background-color: -lamma-on-primary;
 }
+
+/* ---------- Radio buttons (expense split and collection) ---------- */
+.radio-button {
+    -fx-text-fill: -lamma-text;
+}
+.radio-button .radio {
+    -fx-background-color: -lamma-border, -lamma-surface;
+    -fx-background-insets: 0, 1;
+    -fx-background-radius: 1em;
+}
+.radio-button:selected .radio {
+    -fx-background-color: -lamma-primary, -lamma-surface;
+}
+.radio-button:selected .dot {
+    -fx-background-color: -lamma-primary;
+}

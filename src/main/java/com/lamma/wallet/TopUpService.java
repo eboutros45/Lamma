@@ -103,6 +103,11 @@ public class TopUpService {
         }
         try (conn) {
             conn.setAutoCommit(false);
+            // READ COMMITTED: the duplicate-request check (a locking read of a request id that
+            // usually doesn't exist yet) then takes no gap lock, so transfers on unrelated wallets
+            // can't deadlock on the unique request_id index. Every decision is still made on rows
+            // locked with FOR UPDATE / FOR SHARE, which always read the latest committed data.
+            conn.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
             try {
                 TopUpResult result = topUpInTransaction(conn, userId, cents, requestId, type, savedCardId, newCard);
                 conn.commit();

@@ -85,6 +85,7 @@ class GiftWalletFlowTest {
             n.useSharedWalletService(shared);
             n.useMembershipService(new SharedWalletMembershipService(database));
             n.useFundsService(new SharedWalletFundsService(database));
+            n.useExpenseService(new com.lamma.wallet.ExpenseService(database));
             n.useContactService(new ContactService(database));
             return n;
         });

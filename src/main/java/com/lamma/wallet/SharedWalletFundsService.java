@@ -16,6 +16,7 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -47,8 +48,7 @@ public class SharedWalletFundsService {
     static final String REQUEST_REUSED_MESSAGE =
             "This operation was already submitted with different details. Please start again.";
     static final String RECIPIENT_UNAVAILABLE_MESSAGE = TransferService.RECIPIENT_UNAVAILABLE_MESSAGE;
-    static final String LIMIT_MESSAGE =
-            "This would take the receiving wallet's balance above the maximum a wallet can hold.";
+    static final String LIMIT_MESSAGE = LedgerTransfers.LIMIT_MESSAGE;
     static final String FAILED_MESSAGE =
             "The operation could not be completed because of a database problem, so no money was moved. "
             + "Check that MySQL is running and try again.";
@@ -210,6 +210,11 @@ public class SharedWalletFundsService {
         Connection conn = connect(FAILED_MESSAGE);
         try (conn) {
             conn.setAutoCommit(false);
+            // READ COMMITTED: the duplicate-request check (a locking read of a request id that
+            // usually doesn't exist yet) then takes no gap lock, so transfers on unrelated wallets
+            // can't deadlock on the unique request_id index. Every decision is still made on rows
+            // locked with FOR UPDATE / FOR SHARE, which always read the latest committed data.
+            conn.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
             try {
                 Result result = transferInTransaction(conn, kind, userId, walletId, personalOwnerId, cents, requestId);
                 conn.commit();
@@ -227,7 +232,7 @@ public class SharedWalletFundsService {
                                          long personalOwnerId, BigDecimal amount, String requestId)
             throws SQLException, ValidationException, DatabaseException {
         boolean intoShared = WalletTransaction.KIND_CONTRIBUTION.equals(kind);
-        Long personalWalletId = personalWalletId(conn, personalOwnerId);
+        Long personalWalletId = LedgerTransfers.personalWalletId(conn, personalOwnerId);
         if (personalWalletId == null) {
             if (personalOwnerId == userId) {
                 throw new DatabaseException(PERSONAL_WALLET_MISSING_MESSAGE,
@@ -241,17 +246,13 @@ public class SharedWalletFundsService {
         }
 
         // 1. Lock both wallets, lowest id first (the same order as personal Send Money).
-        long first = Math.min(personalWalletId, sharedWalletId);
-        long second = Math.max(personalWalletId, sharedWalletId);
-        LockedWallet a = lockWallet(conn, first);
-        LockedWallet b = lockWallet(conn, second);
-        LockedWallet shared = a == null || a.id != sharedWalletId ? b : a;
-        LockedWallet personal = a == null || a.id != personalWalletId ? b : a;
-        if (shared == null || !"SHARED".equals(shared.type) || !"ACTIVE".equals(shared.status)
-                || !isSharedWallet(conn, sharedWalletId)) {
+        Map<Long, LedgerTransfers.Locked> locked = LedgerTransfers.lockAscending(conn, personalWalletId, sharedWalletId);
+        LedgerTransfers.Locked shared = locked.get(sharedWalletId);
+        LedgerTransfers.Locked personal = locked.get(personalWalletId);
+        if (shared == null || !shared.isActive("SHARED") || !isSharedWallet(conn, sharedWalletId)) {
             throw new ValidationException(SharedWalletService.NOT_AVAILABLE_MESSAGE);
         }
-        if (personal == null || !"PERSONAL".equals(personal.type) || !"ACTIVE".equals(personal.status)) {
+        if (personal == null || !personal.isActive("PERSONAL")) {
             if (personalOwnerId == userId) {
                 throw new DatabaseException(PERSONAL_WALLET_MISSING_MESSAGE,
                         new IllegalStateException("Personal wallet " + personalWalletId + " is not usable"));
@@ -262,7 +263,7 @@ public class SharedWalletFundsService {
         long toId = intoShared ? sharedWalletId : personalWalletId;
 
         // 2. The member's current role, read with a lock (never an older snapshot).
-        MemberRole role = roleOf(conn, userId, sharedWalletId, true);
+        MemberRole role = LedgerTransfers.lockedRole(conn, userId, sharedWalletId);
         if (role == null) {
             throw new ValidationException(SharedWalletService.NOT_AVAILABLE_MESSAGE);
         }
@@ -288,41 +289,27 @@ public class SharedWalletFundsService {
         }
 
         // 5. Balances, with the wallets locked.
-        LockedWallet from = intoShared ? personal : shared;
-        LockedWallet to = intoShared ? shared : personal;
-        if (from.balance.compareTo(amount) < 0) {
+        LedgerTransfers.Locked from = intoShared ? personal : shared;
+        LedgerTransfers.Locked to = intoShared ? shared : personal;
+        if (from.balance().compareTo(amount) < 0) {
             throw new ValidationException(intoShared
-                    ? "Insufficient funds. Your available balance is " + Money.formatUsd(from.balance) + "."
-                    : "Insufficient funds in “" + shared.name + "”. Its balance is "
-                            + Money.formatUsd(from.balance) + ".");
-        }
-        BigDecimal fromAfter = from.balance.subtract(amount);
-        BigDecimal toAfter = to.balance.add(amount);
-        if (toAfter.compareTo(Amounts.MAX_BALANCE) > 0) {
-            throw new ValidationException(LIMIT_MESSAGE);
+                    ? "Insufficient funds. Your available balance is " + Money.formatUsd(from.balance()) + "."
+                    : "Insufficient funds in \u201c" + shared.name() + "\u201d. Its balance is "
+                            + Money.formatUsd(from.balance()) + ".");
         }
 
         // 6. Move the money and record both sides.
-        updateBalance(conn, from.id, amount.negate());
-        updateBalance(conn, to.id, amount);
         LocalDateTime now = LocalDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS);
-        String initiatorName = nameOf(conn, userId);
-        String personalName = nameOf(conn, personalOwnerId);
-        WalletTransaction out = new WalletTransaction(0, from.id, WalletTransaction.TYPE_TRANSFER_OUT,
-                WalletTransaction.DEBIT, amount, fromAfter, WalletTransaction.STATUS_COMPLETED, now, null, null,
-                requestId, to.id, intoShared ? shared.name : personalName, kind, initiatorName);
-        WalletTransaction in = new WalletTransaction(0, to.id, WalletTransaction.TYPE_TRANSFER_IN,
-                WalletTransaction.CREDIT, amount, toAfter, WalletTransaction.STATUS_COMPLETED, now, null, null,
-                requestId, from.id, intoShared ? personalName : shared.name, kind, initiatorName);
-        long outId = insertTransaction(conn, out, requestId, userId);
-        // The receiving row needs its own unique request id; the transfer id links the two rows.
-        long inId = insertTransaction(conn, in, UUID.randomUUID().toString(), userId);
+        String initiatorName = LedgerTransfers.nameOf(conn, userId);
+        String personalName = LedgerTransfers.nameOf(conn, personalOwnerId);
+        LedgerTransfers.Posted posted = LedgerTransfers.post(conn, from, to, amount, kind, userId, initiatorName,
+                intoShared ? shared.name() : personalName, intoShared ? personalName : shared.name(), requestId, now,
+                this::insertTransaction);
 
-        WalletTransaction sharedSide = intoShared ? in.withId(inId) : out.withId(outId);
-        BigDecimal sharedAfter = intoShared ? toAfter : fromAfter;
-        BigDecimal personalAfter = intoShared ? fromAfter : toAfter;
-        return new Result(kind, sharedSide, shared.name, intoShared ? shared.name : personalName, sharedAfter,
-                personalOwnerId == userId ? personalAfter : null, false);
+        WalletTransaction sharedSide = intoShared ? posted.in() : posted.out();
+        WalletTransaction personalSide = intoShared ? posted.out() : posted.in();
+        return new Result(kind, sharedSide, shared.name(), intoShared ? shared.name() : personalName,
+                sharedSide.balanceAfter(), personalOwnerId == userId ? personalSide.balanceAfter() : null, false);
     }
 
     /**
@@ -335,20 +322,6 @@ public class SharedWalletFundsService {
     }
 
     // ---------- helpers ----------
-
-    private record LockedWallet(long id, String type, String status, String name, BigDecimal balance) {
-    }
-
-    private static LockedWallet lockWallet(Connection conn, long walletId) throws SQLException {
-        try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT wallet_type, status, name, balance FROM wallets WHERE wallet_id = ? FOR UPDATE")) {
-            ps.setLong(1, walletId);
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() ? new LockedWallet(walletId, rs.getString(1), rs.getString(2), rs.getString(3),
-                        rs.getBigDecimal(4)) : null;
-            }
-        }
-    }
 
     /**
      * Plain read on purpose: shared_wallets rows are never deleted, and locking this row here
@@ -390,7 +363,7 @@ public class SharedWalletFundsService {
         }
     }
 
-    private Result earlierResult(Connection conn, String kind, WalletTransaction earlierOut, LockedWallet shared,
+    private Result earlierResult(Connection conn, String kind, WalletTransaction earlierOut, LedgerTransfers.Locked shared,
                                  boolean personalIsMine) throws SQLException {
         WalletTransaction earlierIn = null;
         try (PreparedStatement ps = conn.prepareStatement("SELECT " + TransactionRecords.COLUMNS
@@ -408,8 +381,8 @@ public class SharedWalletFundsService {
         boolean intoShared = WalletTransaction.KIND_CONTRIBUTION.equals(kind);
         WalletTransaction sharedSide = intoShared ? earlierIn : earlierOut;
         WalletTransaction personalSide = intoShared ? earlierOut : earlierIn;
-        String other = intoShared ? shared.name : earlierOut.counterpartyName();
-        return new Result(kind, sharedSide, shared.name, other, sharedSide.balanceAfter(),
+        String other = intoShared ? shared.name() : earlierOut.counterpartyName();
+        return new Result(kind, sharedSide, shared.name(), other, sharedSide.balanceAfter(),
                 personalIsMine ? personalSide.balanceAfter() : null, true);
     }
 
@@ -422,33 +395,6 @@ public class SharedWalletFundsService {
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next() ? rs.getLong(1) : -1;
             }
-        }
-    }
-
-    private static Long personalWalletId(Connection conn, long userId) throws SQLException {
-        try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT wallet_id FROM wallets WHERE owner_user_id = ? AND wallet_type = 'PERSONAL'")) {
-            ps.setLong(1, userId);
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() ? rs.getLong(1) : null;
-            }
-        }
-    }
-
-    private static String nameOf(Connection conn, long userId) throws SQLException {
-        Recipient r = TransferService.recipientById(conn, userId);
-        if (r == null) {
-            throw new SQLException("User " + userId + " has no personal wallet");
-        }
-        return r.fullName();
-    }
-
-    private static void updateBalance(Connection conn, long walletId, BigDecimal change) throws SQLException {
-        try (PreparedStatement ps = conn.prepareStatement(
-                "UPDATE wallets SET balance = balance + ? WHERE wallet_id = ?")) {
-            ps.setBigDecimal(1, change);
-            ps.setLong(2, walletId);
-            ps.executeUpdate();
         }
     }
 

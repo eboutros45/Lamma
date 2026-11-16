@@ -396,4 +396,56 @@ class TransferServiceIntegrationTest {
             ps.execute();
         }
     }
+
+    /**
+     * Regression (found in P04C): transfers between unrelated wallets aren't serialized by wallet
+     * locks, so the duplicate-request check must not gap-lock the request_id index. Under
+     * REPEATABLE READ such transfers could deadlock and one would fail with a database error.
+     */
+    @Test
+    void manyTransfersBetweenUnrelatedWalletsAtOnceAllSucceed() throws Exception {
+        RegistrationService registration = new RegistrationService(database, new PinHasher(1_000));
+        TopUpService topUps = new TopUpService(database);
+        List<Long> users = new ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            long id = registration.registerPersonal("User", "N" + i, "+961 76 100 1" + (10 + i), "123456", "123456").userId();
+            topUps.cashTopUp(id, new BigDecimal("50.00"), UUID.randomUUID().toString());
+            users.add(id);
+        }
+        TransferService transfers = new TransferService(database);
+        ExecutorService pool = Executors.newFixedThreadPool(12);
+        try {
+            List<Future<TransferResult>> results = new ArrayList<>();
+            java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+            for (int round = 0; round < 4; round++) {
+                for (int pair = 0; pair < 6; pair++) {
+                    long from = users.get(pair * 2);
+                    long to = users.get(pair * 2 + 1);
+                    results.add(pool.submit(() -> {
+                        start.await();
+                        return transfers.send(from, to, new BigDecimal("1.00"), UUID.randomUUID().toString());
+                    }));
+                }
+            }
+            start.countDown();
+            for (Future<TransferResult> f : results) {
+                f.get(60, java.util.concurrent.TimeUnit.SECONDS); // any deadlock surfaces here as an exception
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        assertEquals(new BigDecimal("46.00"), balanceOf(users.get(0)));
+        assertEquals(new BigDecimal("54.00"), balanceOf(users.get(1)));
+    }
+
+    private BigDecimal balanceOf(long userId) throws Exception {
+        try (Connection conn = database.getConnection();
+             PreparedStatement ps = conn.prepareStatement("SELECT balance FROM wallets WHERE owner_user_id = ?")) {
+            ps.setLong(1, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getBigDecimal(1);
+            }
+        }
+    }
 }
