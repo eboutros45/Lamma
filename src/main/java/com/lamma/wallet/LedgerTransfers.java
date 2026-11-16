@@ -146,6 +146,21 @@ final class LedgerTransfers {
         }
     }
 
+    /**
+     * The member's role in a shared wallet whatever the wallet's status (ACTIVE or COMPLETED), read
+     * with a shared lock, or null. Used to tell a member of a completed gift why nothing can move.
+     */
+    static MemberRole lockedRoleAnyStatus(Connection conn, long userId, long sharedWalletId) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement("SELECT member_role FROM shared_wallet_members"
+                + " WHERE user_id = ? AND shared_wallet_id = ? FOR SHARE")) {
+            ps.setLong(1, userId);
+            ps.setLong(2, sharedWalletId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? MemberRole.valueOf(rs.getString(1)) : null;
+            }
+        }
+    }
+
     private static void updateBalance(Connection conn, long walletId, BigDecimal change) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(
                 "UPDATE wallets SET balance = balance + ? WHERE wallet_id = ?")) {

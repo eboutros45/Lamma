@@ -59,7 +59,7 @@ public class SharedWalletFundsService {
 
     /** What a member sees before moving money: both balances and their role. */
     public record Overview(long walletId, String walletName, BigDecimal sharedBalance, MemberRole myRole,
-                           BigDecimal myPersonalBalance) {
+                           BigDecimal myPersonalBalance, boolean completed) {
     }
 
     /**
@@ -98,13 +98,14 @@ public class SharedWalletFundsService {
     /** Shared balance, role and personal balance. Non-members get "not available". */
     public Overview overview(long userId, long walletId) throws ValidationException, DatabaseException {
         try (Connection conn = connect(LOAD_FAILED_MESSAGE)) {
-            String sql = "SELECT w.name, w.balance, m.member_role FROM wallets w"
+            String sql = "SELECT w.name, w.balance, m.member_role, w.status FROM wallets w"
                     + " JOIN shared_wallets s ON s.shared_wallet_id = w.wallet_id"
                     + " JOIN shared_wallet_members m ON m.shared_wallet_id = w.wallet_id AND m.user_id = ?"
-                    + " WHERE w.wallet_id = ? AND w.wallet_type = 'SHARED' AND w.status = 'ACTIVE'";
+                    + " WHERE w.wallet_id = ? AND w.wallet_type = 'SHARED' AND w.status IN ('ACTIVE', 'COMPLETED')";
             String name;
             BigDecimal balance;
             MemberRole role;
+            boolean completed;
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setLong(1, userId);
                 ps.setLong(2, walletId);
@@ -115,6 +116,7 @@ public class SharedWalletFundsService {
                     name = rs.getString(1);
                     balance = rs.getBigDecimal(2);
                     role = MemberRole.valueOf(rs.getString(3));
+                    completed = "COMPLETED".equals(rs.getString(4));
                 }
             }
             BigDecimal personal = null;
@@ -127,7 +129,7 @@ public class SharedWalletFundsService {
                     }
                 }
             }
-            return new Overview(walletId, name, balance, role, personal);
+            return new Overview(walletId, name, balance, role, personal, completed);
         } catch (SQLException e) {
             throw new DatabaseException(LOAD_FAILED_MESSAGE, e);
         }
@@ -140,7 +142,7 @@ public class SharedWalletFundsService {
     public List<WalletTransaction> history(long userId, long walletId, int limit)
             throws ValidationException, DatabaseException {
         try (Connection conn = connect(LOAD_FAILED_MESSAGE)) {
-            if (roleOf(conn, userId, walletId, false) == null) {
+            if (memberOfActiveOrCompleted(conn, userId, walletId) == null) { // completed gifts keep their history
                 throw new ValidationException(SharedWalletService.NOT_AVAILABLE_MESSAGE);
             }
             String sql = "SELECT " + TransactionRecords.COLUMNS + " FROM wallet_transactions t"
@@ -249,6 +251,10 @@ public class SharedWalletFundsService {
         Map<Long, LedgerTransfers.Locked> locked = LedgerTransfers.lockAscending(conn, personalWalletId, sharedWalletId);
         LedgerTransfers.Locked shared = locked.get(sharedWalletId);
         LedgerTransfers.Locked personal = locked.get(personalWalletId);
+        if (shared != null && "SHARED".equals(shared.type()) && "COMPLETED".equals(shared.status())
+                && LedgerTransfers.lockedRoleAnyStatus(conn, userId, sharedWalletId) != null) {
+            throw new ValidationException(GiftDeliveryService.COMPLETED_MESSAGE); // a delivered gift: read-only
+        }
         if (shared == null || !shared.isActive("SHARED") || !isSharedWallet(conn, sharedWalletId)) {
             throw new ValidationException(SharedWalletService.NOT_AVAILABLE_MESSAGE);
         }
@@ -344,6 +350,20 @@ public class SharedWalletFundsService {
         String sql = "SELECT m.member_role FROM shared_wallet_members m JOIN wallets w ON w.wallet_id = m.shared_wallet_id"
                 + " WHERE m.user_id = ? AND m.shared_wallet_id = ? AND w.wallet_type = 'SHARED' AND w.status = 'ACTIVE'"
                 + (locking ? " FOR SHARE" : "");
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, userId);
+            ps.setLong(2, walletId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? MemberRole.valueOf(rs.getString(1)) : null;
+            }
+        }
+    }
+
+    /** The member's role in an ACTIVE or COMPLETED shared wallet (for reading its history), or null. */
+    private static MemberRole memberOfActiveOrCompleted(Connection conn, long userId, long walletId) throws SQLException {
+        String sql = "SELECT m.member_role FROM shared_wallet_members m JOIN wallets w ON w.wallet_id = m.shared_wallet_id"
+                + " WHERE m.user_id = ? AND m.shared_wallet_id = ? AND w.wallet_type = 'SHARED'"
+                + " AND w.status IN ('ACTIVE', 'COMPLETED')";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, userId);
             ps.setLong(2, walletId);

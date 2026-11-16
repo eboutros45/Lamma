@@ -8,6 +8,7 @@ import com.lamma.wallet.SharedWallet;
 import com.lamma.wallet.SharedWalletMembershipService.JoinRequest;
 import com.lamma.wallet.SharedWalletMembershipService.OutgoingInvitation;
 import com.lamma.wallet.ExpenseService;
+import com.lamma.wallet.GiftDeliveryService;
 import com.lamma.wallet.SharedWalletService;
 import com.lamma.wallet.WalletTransaction;
 import java.math.BigDecimal;
@@ -43,7 +44,8 @@ final class SharedWalletDetailView extends VBox {
 
     /** Everything this screen shows; the Owner-only lists are empty for other members. */
     private record Data(SharedWallet.Details details, List<JoinRequest> requests, List<OutgoingInvitation> invitations,
-                        List<WalletTransaction> recent, List<ExpenseService.ExpenseSummary> expenses) {
+                        List<WalletTransaction> recent, List<ExpenseService.ExpenseSummary> expenses,
+                        GiftDeliveryService.Delivery delivery) {
     }
 
     /** How many transactions the details screen shows; "View all" shows the full history. */
@@ -74,12 +76,16 @@ final class SharedWalletDetailView extends VBox {
                     SharedWallet.Details details = navigator.sharedWalletService().details(userId, walletId);
                     List<WalletTransaction> recent = navigator.fundsService().history(userId, walletId, RECENT_LIMIT);
                     List<ExpenseService.ExpenseSummary> expenses = navigator.expenseService().list(userId, walletId);
+                    if (details.wallet().completed()) { // a delivered gift: read-only, no Owner lists
+                        return new Data(details, List.of(), List.of(), recent, expenses,
+                                navigator.giftService().deliveryFor(userId, walletId));
+                    }
                     if (details.wallet().myRole() != MemberRole.OWNER) {
-                        return new Data(details, List.of(), List.of(), recent, expenses);
+                        return new Data(details, List.of(), List.of(), recent, expenses, null);
                     }
                     return new Data(details,
                             navigator.membershipService().pendingJoinRequests(userId, walletId),
-                            navigator.membershipService().pendingInvitations(userId, walletId), recent, expenses);
+                            navigator.membershipService().pendingInvitations(userId, walletId), recent, expenses, null);
                 },
                 (Data data) -> {
                     if (stillCurrent()) {
@@ -107,8 +113,16 @@ final class SharedWalletDetailView extends VBox {
 
     private void show(Data data) {
         SharedWallet.Summary w = data.details().wallet();
+        actionMessage.setText("");
+        if (w.completed()) {
+            showCompleted(data);
+            return;
+        }
         boolean owner = w.myRole() == MemberRole.OWNER;
         getChildren().setAll(hero(w), moneyActions(w.myRole()));
+        if (w.isGift() && owner) {
+            getChildren().add(sendGiftCard(w));
+        }
 
         if (w.targetAmount() != null) {
             getChildren().add(target(w));
@@ -116,7 +130,6 @@ final class SharedWalletDetailView extends VBox {
         if (w.purpose() != null || w.description() != null) {
             getChildren().add(about(w));
         }
-        actionMessage.setText("");
         if (owner) {
             Button invite = Screens.withIcon(Screens.primaryButton("Invite Member", "inviteMemberButton"), Icon.ADD);
             invite.setDefaultButton(false);
@@ -132,7 +145,7 @@ final class SharedWalletDetailView extends VBox {
         if (owner && !data.requests().isEmpty()) {
             getChildren().add(joinRequests(data.requests()));
         }
-        getChildren().add(expenses(data.expenses()));
+        getChildren().add(expenses(data.expenses(), false));
         getChildren().add(recentActivity(data.recent()));
         getChildren().add(members(data.details(), owner));
         if (owner && !data.invitations().isEmpty()) {
@@ -142,6 +155,45 @@ final class SharedWalletDetailView extends VBox {
             getChildren().add(leaveArea());
         }
 
+    }
+
+    /**
+     * A delivered gift: what was delivered, then everything read-only (target, about, expenses,
+     * activity, members). No money, Owner or membership actions.
+     */
+    private void showCompleted(Data data) {
+        SharedWallet.Summary w = data.details().wallet();
+        getChildren().setAll(hero(w));
+        GiftDeliveryService.Delivery d = data.delivery();
+        Label title = Screens.sectionTitle("Gift delivered");
+        Label text = Screens.hint(d == null ? "This gift has been delivered."
+                : Money.formatUsd(d.amount()) + " was sent to " + d.recipientName() + "'s Personal Wallet on "
+                        + TransactionLabels.dateTime(d.deliveredAt()) + " by " + d.deliveredByName()
+                        + " (Ref " + TransactionLabels.reference(d.transferId()) + ").");
+        text.setId("giftDeliveredText");
+        Label readOnly = Screens.hint("This gift is complete. The wallet is kept read-only for its history: "
+                + "no more contributions, withdrawals, payments, expenses or invitations.");
+        VBox banner = card(title, text, readOnly);
+        banner.setId("giftDeliveredBanner");
+        banner.getStyleClass().add("completed-banner");
+        getChildren().add(banner); // (no target card: the balance is $0.00 after delivery, the banner says what was sent)
+        if (w.purpose() != null || w.description() != null) {
+            getChildren().add(about(w));
+        }
+        getChildren().addAll(expenses(data.expenses(), true), recentActivity(data.recent()),
+                members(data.details(), false));
+    }
+
+    /** Owner of an active gift: who it's for, and Send Gift. */
+    private VBox sendGiftCard(SharedWallet.Summary w) {
+        Button send = Screens.withIcon(Screens.primaryButton("Send Gift", "sendGiftButton"), Icon.SEND);
+        send.setDefaultButton(false);
+        send.setOnAction(event -> navigator.showSendGift(walletId));
+        Label text = Screens.hint("When you're ready, send the whole balance to " + w.giftRecipientName()
+                + ". The wallet then becomes a completed, read-only gift. Reaching the target isn't required.");
+        VBox card = card(Screens.sectionTitle("Gift for " + w.giftRecipientName()), text, Screens.keepWidth(send));
+        card.setId("sendGiftCard");
+        return card;
     }
 
     // ---------- sections ----------
@@ -207,19 +259,21 @@ final class SharedWalletDetailView extends VBox {
     }
 
     /** The wallet's expenses (newest first), each opening its own screen, and Add Expense. */
-    private VBox expenses(List<ExpenseService.ExpenseSummary> expenses) {
+    private VBox expenses(List<ExpenseService.ExpenseSummary> expenses, boolean readOnly) {
         Button add = Screens.withIcon(new Button("Add Expense"), Icon.ADD);
         add.setId("addExpenseButton");
         add.getStyleClass().add("secondary-action-button");
         add.setOnAction(event -> navigator.showCreateExpense(walletId));
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox title = new HBox(Screens.sectionTitle("Expenses"), spacer, Screens.keepWidth(add));
+        HBox title = readOnly ? new HBox(Screens.sectionTitle("Expenses"))
+                : new HBox(Screens.sectionTitle("Expenses"), spacer, Screens.keepWidth(add));
         title.setAlignment(Pos.CENTER_LEFT);
         VBox list = new VBox();
         list.setId("expenseList");
         if (expenses.isEmpty()) {
-            list.getChildren().add(Screens.hint("No expenses yet. Add one to split a bill between members."));
+            list.getChildren().add(Screens.hint(readOnly ? "No expenses."
+                    : "No expenses yet. Add one to split a bill between members."));
         }
         for (ExpenseService.ExpenseSummary e : expenses) {
             Label name = new Label(e.title());
@@ -267,7 +321,7 @@ final class SharedWalletDetailView extends VBox {
         Label name = new Label(w.name());
         name.setId("sharedWalletName");
         name.getStyleClass().add("card-title");
-        Label role = new Label("You: " + w.myRole().displayName());
+        Label role = new Label(w.completed() ? "Delivered" : "You: " + w.myRole().displayName());
         role.setId("myRoleBadge");
         role.getStyleClass().addAll("badge", "on-hero");
         Region spacer = new Region();

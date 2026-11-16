@@ -1,10 +1,14 @@
 # LAMMA Shared Wallets — Implementation Report
 
-**Current phase:** P04, in three checkpoints: P04A (account settings and contacts), P04B (gift
-wallets), P04C (shared expenses). Each has its own section and commit below.
-**Branch:** `alpha2-development` (P01 `909efdd`, P02 `bafb4fe`, P03 `84ca5d1`). `main` is unchanged.
+**Current phase:** P05, in two checkpoints: P05-1 (gift delivery) and P05-2 (application polish).
+Each has its own section and commit below.
+**Branch:** `alpha2-development` (P01 `909efdd`, P02 `bafb4fe`, P03 `84ca5d1`, P04A `ff8a9b3`,
+P04B `0145fd5`, P04C `efe884e`). `main` is unchanged.
 **Verification platform:** Linux (Ubuntu 24.04), OpenJDK 21, Maven 3.9, MySQL 8.0.46, JavaFX 21
-on a virtual display. **Nothing in P01–P04 has been run on Windows or macOS.**
+on a virtual display. **Automated and GUI verification is Linux-only.** On macOS, the user
+reported (after P04C) that the app builds, connects at the current schema and navigates on an
+Apple Silicon Mac with MySQL 8.4, once stale build output was removed with `mvn clean`. Nothing
+has been run on Windows.
 
 ---
 
@@ -1109,5 +1113,179 @@ to 10:
 | Item | Value |
 |---|---|
 | Branch | `alpha2-development` (pushed) |
-| P04C commit | the commit that adds this section (hash given in the completion message) |
+| P04C commit | `efe884e` |
 | `main` | unchanged; nothing merged |
+
+---
+
+## P05-1 — Gift Delivery
+
+**Baseline:** the branch was at P04C (`efe884e`, schema 10, 379 tests), not P03; P05 builds on it.
+
+### 1. Summary of changes
+
+**Send Gift** (Owner of an active gift wallet only). The wallet screen shows a "Gift for <name>"
+card with **Send Gift**; other members don't see it.
+- **The review screen** shows:
+  - the gift wallet's name
+  - the recipient's full name and registered number
+  - the current gift balance
+  - the amount delivered (the whole balance)
+  - the balance after ($0.00)
+  - the target, marked "information only"
+- If pending invitations or join requests exist, it says they will be closed.
+- **Confirm** ("Send $40.00 to Nour Saad") is offered only when delivery is possible. Otherwise
+  the screen explains why:
+  - **$0.00 balance:** "There's nothing to deliver yet…".
+  - **Expenses with money outstanding:** they are listed by name; the Owner must settle or cancel
+    them first. Nothing is cancelled or settled automatically.
+- **After Confirm:** "Gift delivered", with the amount and recipient. **Done** returns to the
+  wallet, now completed.
+- **No partial delivery:** the whole balance is always sent. Delivery before the target is reached
+  is allowed.
+
+**A completed gift:**
+- Status **COMPLETED**, balance **$0.00**, kept under **Wallets → Completed gifts** ("Delivered to
+  Nour Saad · read-only"); it doesn't disappear.
+- The screen shows a **Gift delivered** banner (amount, recipient, date, who sent it, Ref
+  GIFT-<id>), a "Delivered" badge, and read-only sections: About, Expenses, Recent activity / View
+  all, Members.
+- **No actions are offered:** no Contribute / Withdraw / Send Money / Send Gift / Add Expense /
+  invitations / QR / role changes / removal / leaving.
+- **The service refuses all of them too, even when called directly:**
+  - Contributions, withdrawals, sends and new expenses get "This gift has been delivered. The
+    wallet is now read-only…".
+  - Membership actions and QR join requests are refused because the wallet isn't active.
+- **Pending invitations and join requests** are closed in the same transaction as the delivery
+  (Cancelled / Rejected). A completed gift takes no new members.
+- **The recipient** receives an ordinary incoming transaction: "Gift received · From <wallet> ·
+  sent by <Owner> · Ref GIFT-<id>". They don't become a member.
+- **Wallet-wide, not personal:** completion applies to the whole wallet, for every member. It isn't
+  the per-member "archive" concept (hiding a wallet from one person), which LAMMA doesn't
+  implement. No personal wallet is closed or changed apart from receiving the money.
+
+### 2. Schema (V011) and integrity
+
+| Change | Why |
+|---|---|
+| `wallets.status` allows `COMPLETED` (LDM WALLET.status) | The minimal persistent "delivered/completed" state; no new table and no separate gift balance |
+| `wallets.completed_at` (DATETIME, NULL) | When the gift was completed |
+| CHECK: `COMPLETED` ⇒ shared wallet, `completed_at` set, **balance = 0**; `ACTIVE` ⇒ `completed_at` NULL | The database itself refuses money in a completed wallet (tested with a direct UPDATE) |
+| `transfer_kind` also allows `GIFT_DELIVERY` | Delivery is an ordinary two-row transfer, recognisable in histories |
+
+**How the delivery reuses P03.** `GiftDeliveryService.deliver` is one transaction built on
+`LedgerTransfers`:
+1. **Lock** the shared wallet and the recipient's personal wallet, lowest id first (the same order
+   as every money operation). Contributions, withdrawals, sends, expense payments and membership
+   changes all lock the shared wallet's row, so they happen entirely before or after the delivery.
+   As in P03, the `shared_wallets` row is never locked here, which avoids the lock-order deadlock
+   found in P03.
+2. **Already COMPLETED?** Return the earlier delivery to the Owner (`alreadyDelivered`); nothing
+   moves.
+3. **Re-check with the locks held:** Owner role, still a gift, recipient's personal wallet active,
+   no expense with money outstanding, balance > 0 and **equal to the amount the Owner reviewed**
+   (otherwise "The gift balance changed since you reviewed it…").
+4. **Move and complete:** move the whole balance (TRANSFER_OUT + TRANSFER_IN), close pending
+   invitations and requests, and set COMPLETED, all in one commit, or roll everything back.
+
+The transfer's `request_id` is `gift-delivery-<wallet id>` (UNIQUE), a second guarantee against
+delivering twice. The per-operation $10,000 cap for typed amounts doesn't apply, since delivery
+moves the whole existing balance; the receiving wallet's maximum still applies.
+
+**Files**
+- New: `V011__add_gift_delivery.sql`, `wallet/GiftDeliveryService`, `ui/GiftDeliveryView`.
+- Changed:
+  - `SharedWalletService` (lists and opens completed wallets; `Summary.completed`)
+  - `SharedWalletFundsService` (history and overview for completed wallets; the read-only message)
+  - `ExpenseService` (the read-only message)
+  - `LedgerTransfers` (`lockedRoleAnyStatus`)
+  - `WalletTransaction` (`KIND_GIFT_DELIVERY`)
+  - `TransactionLabels` ("Gift delivered / received", Ref GIFT-)
+  - `SharedWalletDetailView` (Send Gift card, completed view)
+  - `WalletsView` (Completed gifts), `SharedTransferView`, `AppNavigator`, `SchemaMigrator`, `lamma.css`
+  - the UI tests' service setup
+
+### 3. Build and test results
+
+| Configuration | Run | Passed | Failed | Skipped |
+|---|---|---|---|---|
+| Baseline at `efe884e` (P04C), MySQL and display | 379 | 379 | 0 | 0 |
+| No MySQL settings, no display | 390 | 136 | 0 | 254 |
+| MySQL settings, no display | 390 | 319 | 0 | 71 |
+| **MySQL settings and a display (virtual display)** | **390** | **390** | **0** | **0** |
+
+New tests (11):
+
+| Class | Tests | Needs | Covers |
+|---|---|---|---|
+| `GiftDeliveryIntegrationTest` | 10 | MySQL | **Delivery below the target:** the preview values; the whole balance reaches the recipient's Personal Wallet; COMPLETED with `completed_at`, $0.00; the recipient's history shows a GIFT_DELIVERY credit; members still list, open and read the history; the recipient isn't a member; money constant. **Unauthorized:** Contributor, Spender, the recipient (non-member, learns nothing), a non-gift wallet. **Zero balance**, and a **balance changed after review** (nothing sent; the new amount works). **Invalid recipient** (personal wallet gone). **Repeat and 8 concurrent deliveries → exactly 1**, the rest `alreadyDelivered`. **Contributions and withdrawals racing the delivery (5 rounds):** either the delivery wins and every later operation gets the read-only message (balance stays $0.00), or a contribution wins and the delivery reports the changed balance; never a database error; money constant. **Rollback** when the second row fails: still ACTIVE, balances and invitations unchanged, retry works. **Open expenses block delivery** (pooled and reimbursement; nothing cancelled silently); settled or cancelled ones don't. **Read-only after completion:** contribute, withdraw, send, new expense, invite, role change, remove, leave, new QR code and join by old code all refused; pending invitation and join request closed; the database refuses a balance UPDATE; members kept. **Persists after a restart** (new services), and a retry still says "already delivered" |
+| `GiftDeliveryFlowTest` | 1 | MySQL + display | Real screens, from three sides. A Contributor sees no Send Gift. The Owner gets the zero-balance explanation, then the open-expense block naming "Cake", then the review (all seven values, the closing note). A **double-clicked Confirm delivers once**. The completed wallet shows the banner (with Ref GIFT-<id>), the "Delivered" badge, $0.00, no actions or Owner tools, and "Gift delivered" in activity; it appears under Completed gifts. A member can't contribute even by opening the screen directly. The recipient's history shows "Gift received · From … · sent by Lina Haddad". Money constant |
+
+**Mutation checks** (each reverted; all detected):
+
+| Change | Test that failed |
+|---|---|
+| No "already delivered" check | repeat / concurrent delivery |
+| No open-expense check | open expenses block delivery |
+| No reviewed-amount check | changed balance |
+| No Owner check | only the Owner can send |
+
+**Bug found and fixed:** a gift wallet *without a target* was reported as "not a gift". The JDBC
+`wasNull()` check was made after reading a different column, the same mistake as in P04C. All
+`wasNull()` uses in the code base were audited and are now checked right after their own column.
+
+**Existing test changed:** `WalletServiceIntegrationTest` simulates a broken schema by renaming
+`wallets.balance`. MySQL refuses that while a CHECK uses the column, so the test now also drops the
+new `chk_wallets_completed` before renaming (it already dropped the other balance CHECK). The first
+full run caught this; the re-run is the one reported above.
+
+**Upgrade check:** a database built by `efe884e` (schema 10) contained users, a top-up, a transfer,
+a gift wallet, membership, a contribution, a withdrawal, a contact and a partly paid expense. It
+was upgraded to 11:
+- All **34 existing rows were identical** (every column; only the `schema_version` row was added).
+- Every wallet has `completed_at` NULL, and total money stayed at $80.00.
+- On the upgraded data, Send Gift was correctly **blocked** by the partly paid expense; nothing moved.
+
+**Real app on Linux** (the real `lamma` database, upgraded to 11 on launch). Lina opened "Rami's
+Graduation" (a gift for Rami, $0.00):
+1. **Send Gift** explained there was nothing to deliver.
+2. She contributed $25, then reviewed (Recipient Rami Khoury, +961 70 123 456, $25.00 → $0.00,
+   target $300 information only) and confirmed.
+
+Afterwards:
+- **The wallet** is COMPLETED with $0.00 and is listed under Completed gifts.
+- **Rami** (dark, compact) sees "Gift received +$25.00" on Home and in his history.
+- **The database** has the `gift-delivery-16` transfer pair. Lina $69.00 → $44.00, Rami $33.50 →
+  $58.50; **total $217.50 before and after**.
+- Screenshot fixes: the reference read "GIFTDELI" (now **GIFT-16**), and the completed view showed
+  a misleading "Target $0.00 of $300.00 (0%)" (removed; the banner says what was delivered).
+
+### 4. Known limitations
+
+1. **No undo.** A delivered gift can't be reopened or reversed. The recipient can send money back
+   with Send Money.
+2. **Recipient not notified** beyond the incoming transaction in their history.
+3. **Delivery needs no open expenses**, even reimbursements that don't involve the gift's balance,
+   because their requests couldn't be paid in a read-only wallet.
+4. **Members can't leave** a completed gift (it is read-only for membership too); it stays in their
+   Completed gifts list.
+
+### 5. Windows manual-testing checklist
+
+1. `mvn clean javafx:run` (or `mvn -q compile exec:java`) → `… schema version 11 (1 migration(s) applied now)`.
+2. `mvn test` (with the `LAMMA_TEST_DB_*` variables) → `Tests run: 390, Failures: 0, Errors: 0, Skipped: 0`.
+3. Owner A creates a gift wallet for B (P04B), with member C. C sees no **Send Gift**.
+4. A → **Send Gift** at $0.00 → the explanation, no Confirm. Contribute some money. Add an expense
+   and leave it unpaid → Send Gift lists it; cancel it.
+5. A → **Send Gift** → check name, number, balance, amount, $0.00 after → double-click
+   **Send $x to B** → "Gift delivered". B's Home shows "Gift received" once.
+6. The wallet shows **Delivered**, $0.00, the banner and no actions. Wallets → **Completed gifts**
+   lists it. As C, it is read-only.
+7. Light/Dark, narrow/wide: the review, banner and Completed gifts list stay readable.
+
+### 6. Commit
+
+| Item | Value |
+|---|---|
+| Branch | `alpha2-development` (pushed) |
+| P05-1 commit | the commit that adds this section (hash given in the completion message) |

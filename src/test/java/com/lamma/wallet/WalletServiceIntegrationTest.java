@@ -99,6 +99,7 @@ class WalletServiceIntegrationTest {
         Registration r = registration.registerPersonal("Lina", "Haddad", "03 123 456", "123456", "123456");
         // Simulate a broken schema: the query's balance column no longer exists.
         execute("ALTER TABLE wallets DROP CHECK chk_wallets_balance_not_negative");
+        execute("ALTER TABLE wallets DROP CHECK chk_wallets_completed"); // V011: also uses balance
         execute("ALTER TABLE wallets RENAME COLUMN balance TO balance_broken");
 
         DatabaseException e = assertThrows(DatabaseException.class, () -> wallets.loadPersonalWallet(r.userId()));

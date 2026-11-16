@@ -102,6 +102,7 @@ class SharedWalletFundsFlowTest {
             n.useMembershipService(members);
             n.useFundsService(funds);
             n.useExpenseService(new com.lamma.wallet.ExpenseService(database));
+            n.useGiftService(new com.lamma.wallet.GiftDeliveryService(database));
             return n;
         });
     }

@@ -48,6 +48,8 @@ public record WalletTransaction(long transactionId, long walletId, String type, 
     // Kinds of expense payment (V010).
     public static final String KIND_EXPENSE_PAYMENT = "EXPENSE_PAYMENT";
     public static final String KIND_REIMBURSEMENT = "REIMBURSEMENT";
+    // Gift delivery (V011).
+    public static final String KIND_GIFT_DELIVERY = "GIFT_DELIVERY";
 
     /** A transaction that is not a shared-wallet transfer (top-up or personal Send Money). */
     public WalletTransaction(long transactionId, long walletId, String type, String direction,

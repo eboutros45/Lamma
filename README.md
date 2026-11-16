@@ -32,6 +32,9 @@ personal wallet balance and sign out. Alpha 2 adds:
   paid the bill. Each participant gets a payment request (under Wallets → Payment requests and on
   the expense) and pays or declines it; nobody is charged automatically. The creator can revise
   declined shares or cancel the expense.
+- **Gift delivery** (P05): the Owner of a gift wallet uses **Send Gift** to send its whole balance
+  to the recipient's Personal Wallet (after a review and confirmation). The wallet then becomes a
+  **completed, read-only gift**, listed under Wallets → Completed gifts with its full history.
 
 All money is simulated. Business accounts are still "Coming Soon".
 
@@ -79,7 +82,7 @@ JavaFX and the MySQL JDBC driver are downloaded by Maven automatically.
    mvn -q compile exec:java
    ```
 
-   Expected output: `OK: Connected to MySQL 8.0.x, database 'lamma', schema version 10 ...`
+   Expected output: `OK: Connected to MySQL 8.0.x, database 'lamma', schema version 11 ...`
 
    > Once a database has been upgraded to version 3 or later, the Alpha 1 app on `main` refuses to start
    > against it ("schema is newer than this application"). If you switch between `main` and
@@ -183,17 +186,17 @@ mvn test
 Two groups of tests are **skipped** unless their environment is available. Maven reports them as
 `Skipped`, not passed:
 
-- **173 MySQL integration tests** run only when `LAMMA_TEST_DB_*` is set (see below).
-- **70 JavaFX UI tests** (`DashboardNavigationTest`, `AsyncNavigationRaceTest`, `CashTopUpFlowTest`,
+- **183 MySQL integration tests** run only when `LAMMA_TEST_DB_*` is set (see below).
+- **71 JavaFX UI tests** (`DashboardNavigationTest`, `AsyncNavigationRaceTest`, `CashTopUpFlowTest`,
   `CardFlowsTest`, `SendMoneyFlowTest`, `AppShellNavigationTest`, `SharedWalletFlowTest`,
   `SharedWalletMembershipFlowTest`, `SharedWalletFundsFlowTest`, `AccountAndContactsFlowTest`,
-  `GiftWalletFlowTest`, `ExpenseFlowTest`) need a
+  `GiftWalletFlowTest`, `ExpenseFlowTest`, `GiftDeliveryFlowTest`) need a
   graphical display. They always run on macOS and Windows; on Linux they need `DISPLAY` (a
   desktop session, or `xvfb-run`). No window is shown. `SharedWalletMembershipFlowTest` (3 tests),
-  `SharedWalletFundsFlowTest` (2), `AccountAndContactsFlowTest` (2), `GiftWalletFlowTest` (2) and
-  `ExpenseFlowTest` (2) need MySQL as well and are counted here.
+  `SharedWalletFundsFlowTest` (2), `AccountAndContactsFlowTest` (2), `GiftWalletFlowTest` (2),
+  `ExpenseFlowTest` (2) and `GiftDeliveryFlowTest` (1) need MySQL as well and are counted here.
 
-With neither available, expect `Tests run: 379, Failures: 0, Errors: 0, Skipped: 243`. To run the
+With neither available, expect `Tests run: 390, Failures: 0, Errors: 0, Skipped: 254`. To run the
 MySQL tests, point them at the test database:
 
 ```bash
@@ -202,8 +205,8 @@ LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
 mvn test
 ```
 
-Expect `Skipped: 70` if no display is available (the JavaFX tests), and with a display as well,
-`Tests run: 379, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
+Expect `Skipped: 71` if no display is available (the JavaFX tests), and with a display as well,
+`Tests run: 390, Failures: 0, Errors: 0, Skipped: 0`. On a headless Linux machine:
 `xvfb-run -a mvn test` (with the variables above).
 
 These tests drop and recreate all tables in that database, so they refuse to run unless the
@@ -240,7 +243,7 @@ MySQL                                 users, wallets, schema_version
 - `src/main/resources/db/migration/`: versioned schema scripts.
 - `database/create_database.sql`: one-time admin setup (database and user).
 
-## Database schema (version 10)
+## Database schema (version 11)
 
 ### `users` (USER)
 
@@ -398,6 +401,20 @@ adds nothing. Every query filters by the session's user id.
   COMMITTED so that transfers on unrelated wallets can't deadlock on the request-id index. Every
   check is still made on rows locked with `FOR UPDATE` / `FOR SHARE`.
 
+### Gift delivery (V011)
+
+- **`wallets.status`** (LDM WALLET) now allows `COMPLETED`, and **`wallets.completed_at`** records
+  when. A CHECK allows `COMPLETED` only for a shared wallet with a **zero balance**, so no later
+  transfer can put money into it. Completion applies to the whole wallet, for every member; it is
+  not a per-member "archive".
+- Delivery is one ordinary transfer (`transfer_kind` `GIFT_DELIVERY`, shared wallet → recipient's
+  Personal Wallet). It is made in the same transaction that completes the wallet and closes
+  pending invitations and join requests. Its `request_id` is `gift-delivery-<wallet id>` (UNIQUE),
+  so a gift can't be delivered twice. Shown as **Ref GIFT-<wallet id>**.
+- Delivery is refused while the balance is $0.00, while an expense still has money outstanding
+  (settle or cancel it first), or if the balance changed since the Owner reviewed it. The target
+  amount is information only.
+
 ### `payment_cards` (Alpha 2 P02)
 
 Saved cards hold **metadata only**. There is no column for the card number or CVV.
@@ -438,6 +455,7 @@ first.
 | 8 | `V008__add_shared_wallet_transfers.sql` | `wallet_transactions.transfer_kind`, `wallet_transactions.initiated_by_user_id` (Shared Wallet P03) |
 | 9 | `V009__add_contacts.sql` | `contacts` (P04A) |
 | 10 | `V010__add_shared_expenses.sql` | `expenses`, `expense_shares`, `payment_requests`; transfer kinds `EXPENSE_PAYMENT`, `REIMBURSEMENT` (P04C) |
+| 11 | `V011__add_gift_delivery.sql` | `wallets.status` `COMPLETED`, `wallets.completed_at`; transfer kind `GIFT_DELIVERY` (P05) |
 
 When adding a table that references `users`, `wallets`, `wallet_transactions`, `payment_cards`, `shared_wallets`, `shared_wallet_members`, `shared_wallet_invitations` or
 `shared_wallet_join_requests`, `contacts`, `expenses`, `expense_shares` or `payment_requests`, also add it to
@@ -578,10 +596,10 @@ mysql -u root < database/create_database.sql
 cp config/database.properties.example config/database.properties   # then set db.password
 
 # 3. Verify
-mvn -q compile exec:java         # expect: OK: Connected to MySQL ... schema version 10
+mvn -q compile exec:java         # expect: OK: Connected to MySQL ... schema version 11
 LAMMA_TEST_DB_URL='jdbc:mysql://localhost:3306/lamma_test' \
 LAMMA_TEST_DB_USER=lamma_app LAMMA_TEST_DB_PASSWORD='<your password>' \
-mvn test                         # expect: Tests run: 379, Failures: 0, Errors: 0, Skipped: 0
+mvn test                         # expect: Tests run: 390, Failures: 0, Errors: 0, Skipped: 0
 
 # 4. Run and try it
 mvn javafx:run

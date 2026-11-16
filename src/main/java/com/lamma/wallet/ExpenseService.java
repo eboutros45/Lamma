@@ -239,6 +239,10 @@ public class ExpenseService {
         BigDecimal total = input.total().setScale(2, RoundingMode.UNNECESSARY);
         return inTransaction(FAILED_MESSAGE, conn -> {
             LedgerTransfers.Locked shared = LedgerTransfers.lockAscending(conn, walletId).get(walletId);
+            if (shared != null && "COMPLETED".equals(shared.status())
+                    && LedgerTransfers.lockedRoleAnyStatus(conn, userId, walletId) != null) {
+                throw new ValidationException(GiftDeliveryService.COMPLETED_MESSAGE);
+            }
             if (shared == null || !shared.isActive("SHARED") || LedgerTransfers.lockedRole(conn, userId, walletId) == null) {
                 throw new ValidationException(SharedWalletService.NOT_AVAILABLE_MESSAGE);
             }

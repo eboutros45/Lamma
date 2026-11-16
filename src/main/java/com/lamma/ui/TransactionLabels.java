@@ -25,6 +25,7 @@ final class TransactionLabels {
                 case WalletTransaction.KIND_WITHDRAWAL -> "Withdrawal";
                 case WalletTransaction.KIND_EXPENSE_PAYMENT -> "Expense payment";
                 case WalletTransaction.KIND_REIMBURSEMENT -> "Reimbursement";
+                case WalletTransaction.KIND_GIFT_DELIVERY -> t.isCredit() ? "Gift received" : "Gift delivered";
                 default -> t.isCredit() ? "Money Received" : "Money Sent";
             };
         }
@@ -58,7 +59,8 @@ final class TransactionLabels {
         String when = dateTime(t.createdAt());
         if (t.transferKind() != null && t.counterpartyName() != null) {
             String text = (t.isCredit() ? "From " : "To ") + t.counterpartyName();
-            if (WalletTransaction.KIND_SHARED_SEND.equals(t.transferKind()) && t.initiatedByName() != null) {
+            if ((WalletTransaction.KIND_SHARED_SEND.equals(t.transferKind())
+                    || WalletTransaction.KIND_GIFT_DELIVERY.equals(t.transferKind())) && t.initiatedByName() != null) {
                 text += (t.isCredit() ? " \u00b7 sent by " : " \u00b7 by ") + t.initiatedByName();
             }
             if (t.expenseTitle() != null) {
@@ -89,6 +91,9 @@ final class TransactionLabels {
      * ("EXP-12"), because their transfer id is derived from it; others the first 8 characters.
      */
     static String reference(String transferId) {
+        if (transferId != null && transferId.startsWith(com.lamma.wallet.GiftDeliveryService.TRANSFER_PREFIX)) {
+            return "GIFT-" + transferId.substring(com.lamma.wallet.GiftDeliveryService.TRANSFER_PREFIX.length());
+        }
         if (transferId != null && transferId.startsWith(com.lamma.wallet.ExpenseService.TRANSFER_PREFIX)) {
             return "EXP-" + transferId.substring(com.lamma.wallet.ExpenseService.TRANSFER_PREFIX.length());
         }

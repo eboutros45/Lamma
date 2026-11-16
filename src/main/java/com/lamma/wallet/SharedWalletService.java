@@ -176,7 +176,9 @@ public class SharedWalletService {
 
     /** The shared wallets this user is a member of (oldest first). */
     public List<SharedWallet.Summary> listForMember(long userId) throws DatabaseException {
-        String sql = SUMMARY_SELECT + " WHERE m.user_id = ? AND w.status = 'ACTIVE' ORDER BY m.joined_at, w.wallet_id";
+        // Active wallets first, then completed (delivered) gifts, which stay visible read-only.
+        String sql = SUMMARY_SELECT + " WHERE m.user_id = ? AND w.status IN ('ACTIVE', 'COMPLETED')"
+                + " ORDER BY w.status = 'COMPLETED', m.joined_at, w.wallet_id";
         try (Connection conn = connect(UNAVAILABLE_MESSAGE); PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, userId);
             List<SharedWallet.Summary> wallets = new ArrayList<>();
@@ -199,7 +201,7 @@ public class SharedWalletService {
         try (Connection conn = connect(UNAVAILABLE_MESSAGE)) {
             SharedWallet.Summary summary;
             try (PreparedStatement ps = conn.prepareStatement(SUMMARY_SELECT
-                    + " WHERE m.user_id = ? AND w.wallet_id = ? AND w.status = 'ACTIVE'")) {
+                    + " WHERE m.user_id = ? AND w.wallet_id = ? AND w.status IN ('ACTIVE', 'COMPLETED')")) {
                 ps.setLong(1, userId);
                 ps.setLong(2, walletId);
                 try (ResultSet rs = ps.executeQuery()) {
@@ -288,7 +290,8 @@ public class SharedWalletService {
 
     /** Shared wallet columns plus the viewing member's role; the WHERE clause limits by member. */
     private static final String SUMMARY_SELECT = "SELECT w.wallet_id, w.name, w.balance, s.purpose, s.description,"
-            + " s.target_amount, m.member_role, CONCAT(g.first_name, ' ', g.last_name) AS gift_recipient_name"
+            + " s.target_amount, m.member_role, CONCAT(g.first_name, ' ', g.last_name) AS gift_recipient_name,"
+            + " w.status AS wallet_status"
             + " FROM shared_wallet_members m"
             + " JOIN shared_wallets s ON s.shared_wallet_id = m.shared_wallet_id"
             + " JOIN wallets w ON w.wallet_id = s.shared_wallet_id AND w.wallet_type = 'SHARED'"
@@ -297,7 +300,8 @@ public class SharedWalletService {
     private static SharedWallet.Summary readSummary(ResultSet rs) throws SQLException {
         return new SharedWallet.Summary(rs.getLong("wallet_id"), rs.getString("name"), rs.getBigDecimal("balance"),
                 rs.getString("purpose"), rs.getString("description"), rs.getBigDecimal("target_amount"),
-                MemberRole.valueOf(rs.getString("member_role")), rs.getString("gift_recipient_name"));
+                MemberRole.valueOf(rs.getString("member_role")), rs.getString("gift_recipient_name"),
+                "COMPLETED".equals(rs.getString("wallet_status")));
     }
 
     private static String clean(String text) {

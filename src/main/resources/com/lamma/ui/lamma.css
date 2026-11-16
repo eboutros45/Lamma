@@ -574,3 +574,10 @@
 .radio-button:selected .dot {
     -fx-background-color: -lamma-primary;
 }
+
+/* ---------- Completed (delivered) gift banner (P05) ---------- */
+.completed-banner {
+    -fx-border-color: -lamma-success;
+    -fx-border-width: 0 0 0 4;
+    -fx-border-radius: 12;
+}

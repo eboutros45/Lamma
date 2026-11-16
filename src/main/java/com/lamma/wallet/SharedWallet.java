@@ -18,13 +18,19 @@ public final class SharedWallet {
      * @param targetAmount optional (null if not given)
      * @param myRole       the viewing user's role in this wallet
      * @param giftRecipientName "First Last" of the gift recipient, or null if this isn't a gift wallet
+     * @param completed    the gift was delivered: the wallet is read-only (P05)
      */
     public record Summary(long walletId, String name, BigDecimal balance, String purpose, String description,
-                          BigDecimal targetAmount, MemberRole myRole, String giftRecipientName) {
+                          BigDecimal targetAmount, MemberRole myRole, String giftRecipientName, boolean completed) {
 
         public Summary(long walletId, String name, BigDecimal balance, String purpose, String description,
                        BigDecimal targetAmount, MemberRole myRole) {
-            this(walletId, name, balance, purpose, description, targetAmount, myRole, null);
+            this(walletId, name, balance, purpose, description, targetAmount, myRole, null, false);
+        }
+
+        public Summary(long walletId, String name, BigDecimal balance, String purpose, String description,
+                       BigDecimal targetAmount, MemberRole myRole, String giftRecipientName) {
+            this(walletId, name, balance, purpose, description, targetAmount, myRole, giftRecipientName, false);
         }
 
         public boolean isGift() {

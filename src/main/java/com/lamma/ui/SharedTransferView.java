@@ -79,7 +79,9 @@ final class SharedTransferView extends VBox {
                         return;
                     }
                     overview = o;
-                    if (mode != Mode.CONTRIBUTE && !o.myRole().canSendOut()) {
+                    if (o.completed()) {
+                        showProblem(com.lamma.wallet.GiftDeliveryService.COMPLETED_MESSAGE, false);
+                    } else if (mode != Mode.CONTRIBUTE && !o.myRole().canSendOut()) {
                         showProblem("Only the Owner or a Spender can withdraw or send money from this shared wallet.",
                                 false);
                     } else if (mode == Mode.SEND) {

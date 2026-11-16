@@ -149,7 +149,8 @@ final class WalletsView extends VBox {
     private Button sharedWalletTile(SharedWallet.Summary w) {
         Label name = new Label(w.name());
         name.getStyleClass().add("card-title");
-        String about = w.isGift() ? "Gift for " + w.giftRecipientName()
+        String about = w.completed() ? "Delivered to " + w.giftRecipientName() + " · read-only"
+                : w.isGift() ? "Gift for " + w.giftRecipientName()
                 : w.purpose() != null ? w.purpose()
                 : w.description() != null ? w.description() : "Shared wallet · " + w.myRole().displayName();
         Label subtitle = Screens.caption(about);
@@ -317,15 +318,28 @@ final class WalletsView extends VBox {
                 });
     }
 
+    /** Active shared wallets, then delivered gifts in their own "Completed gifts" section (read-only). */
     private void showShared(List<SharedWallet.Summary> wallets) {
-        newShared.setVisible(!wallets.isEmpty());
-        if (wallets.isEmpty()) {
-            sharedList.getChildren().setAll(emptyState());
-            return;
-        }
+        List<SharedWallet.Summary> active = wallets.stream().filter(w -> !w.completed()).toList();
+        List<SharedWallet.Summary> completed = wallets.stream().filter(SharedWallet.Summary::completed).toList();
+        newShared.setVisible(!active.isEmpty());
         sharedList.getChildren().clear();
-        for (SharedWallet.Summary w : wallets) {
+        if (active.isEmpty()) {
+            sharedList.getChildren().add(emptyState());
+        }
+        for (SharedWallet.Summary w : active) {
             sharedList.getChildren().add(sharedWalletTile(w));
+        }
+        if (!completed.isEmpty()) {
+            VBox done = new VBox(10);
+            done.setId("completedWalletList");
+            Label header = Screens.sectionTitle("Completed gifts");
+            VBox.setMargin(header, new Insets(12, 0, 0, 0));
+            done.getChildren().add(header);
+            for (SharedWallet.Summary w : completed) {
+                done.getChildren().add(sharedWalletTile(w));
+            }
+            sharedList.getChildren().add(done);
         }
     }
 

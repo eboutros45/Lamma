@@ -109,6 +109,7 @@ class ExpenseFlowTest {
             n.useMembershipService(members);
             n.useFundsService(funds);
             n.useExpenseService(new ExpenseService(database));
+            n.useGiftService(new com.lamma.wallet.GiftDeliveryService(database));
             return n;
         });
     }

@@ -11,6 +11,7 @@ import com.lamma.db.Database;
 import com.lamma.ui.AppShell.Destination;
 import com.lamma.contacts.ContactService;
 import com.lamma.wallet.ExpenseService;
+import com.lamma.wallet.GiftDeliveryService;
 import com.lamma.wallet.SharedWalletFundsService;
 import com.lamma.wallet.SharedWalletMembershipService;
 import com.lamma.wallet.SharedWalletService;
@@ -58,6 +59,7 @@ public final class AppNavigator {
     private AccountService accountService;
     private ContactService contactService;
     private ExpenseService expenseService;
+    private GiftDeliveryService giftService;
 
     /** Normal start-up: shows the startup screen, which connects to the database. */
     public AppNavigator(Stage stage) {
@@ -130,6 +132,7 @@ public final class AppNavigator {
         this.accountService = new AccountService(database, pinHasher);
         this.contactService = new ContactService(database);
         this.expenseService = new ExpenseService(database);
+        this.giftService = new GiftDeliveryService(database);
         showSignIn("", "");
     }
 
@@ -304,6 +307,13 @@ public final class AppNavigator {
         }
     }
 
+    /** Send Gift (Owner of a gift wallet); Back returns to the wallet. */
+    void showSendGift(long walletId) {
+        if (requireSession()) {
+            showFlow(new GiftDeliveryView(this, user(), walletId), "Send Gift", () -> showSharedWalletDetail(walletId), true);
+        }
+    }
+
     /** New shared expense; Back returns to the wallet. */
     void showCreateExpense(long walletId) {
         if (requireSession()) {
@@ -437,6 +447,15 @@ public final class AppNavigator {
     /** For automated UI tests: supplies the contact book service. */
     void useContactService(ContactService service) {
         this.contactService = service;
+    }
+
+    GiftDeliveryService giftService() {
+        return giftService;
+    }
+
+    /** For automated UI tests: supplies the gift delivery service. */
+    void useGiftService(GiftDeliveryService service) {
+        this.giftService = service;
     }
 
     ExpenseService expenseService() {
